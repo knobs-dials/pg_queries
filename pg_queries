@@ -1,0 +1,189 @@
+#!/usr/bin/python
+
+import time
+import datetime
+import os
+import sys
+
+import psycopg2
+
+import helpers_shellcolor as sc
+
+connstring   = 'dbname=postgres user=postgres host=localhost connect_timeout=5'
+interval_sec = 0.333
+
+
+def nicetimelength(sec, long=False, joinon=' ', parts=2, future=''):
+    """ Takes a relative amount of time (seconds as float/int, or a timedelta)
+        Returns a string describing that is human terms
+
+         e.g. nicetimelength(767)        == '12min 47sec',
+              nicetimelength(2615958475) == '82yr  11mo',
+    """
+    if type(sec) is datetime.timedelta:       
+       sec = sec.days*86400 + sec.seconds
+
+    vals = [
+        #('century','centuries','cent', 60.*60.*24.*365.*100. ),
+        ('year',   'years',    'yr',   60.*60.*24.*365.      ),
+        ('month',  'months',   'mo',   60.*60.*24.*30.6      ),
+        ('week',   'weeks',    'wk',   60.*60.*24.*7         ),
+        ('day',    'days',     'dy',   60.*60.*24.           ),
+        ('hour',   'hours',    'hr',   60.*60.               ),
+        ('minute', 'minutes',  'min',  60.                   ),
+        #('second', 'seconds',  'sec',  1.                    ),
+    ]
+    ret=[]
+    left = sec
+
+    if left<0:
+        ret.append(future)
+        left = abs(left)
+
+    roundme=False
+    if left>10:
+        roundme=True
+    for one,many,shorts,insec in vals:
+        if left>insec:
+            howmany = int(left/insec)
+            left -= howmany*insec
+            if long:
+                if howmany==1:
+                    ret.append( '1 %s'%(one) )
+                else:
+                    ret.append( '%d %s'%(howmany,many) )
+            else: # short form
+                ret.append('%2d%-3s'%(howmany,shorts))
+    if left>0.:
+        if roundme:
+            if long:
+                ret.append( '%d seconds'%(left) )
+            else:
+                ret.append( '%dsec'%(left) )
+        else:
+            if long:
+                ret.append( '%s seconds'%(sfloat(left,fixedwidth='')) )
+            else:
+                ret.append( '%ssec'%(sfloat(left,fixedwidth='', digits=2)) )
+                        
+    return joinon.join(ret[:parts])
+
+
+
+def colorqtype(q):
+    # find the first word in the query
+    if ' ' in q:
+        first,tail = q.strip().split(None,1) 
+        tail = sc.darkgray(tail)
+    else: # hacky
+        first=q
+        tail=''
+
+    flow = first.lower()
+    #print `flow`
+    if flow=='select':
+        return sc.yellow(first)+' '+tail 
+    elif flow=='update':
+        return sc.green(first)+' '+tail 
+    elif flow=='insert':
+        return sc.brightgreen(first)+' '+tail 
+    elif flow=='delete':
+        return sc.red(first)+' '+tail 
+    elif flow=='commit':
+        return sc.brightblue(first)+' '+tail 
+    elif flow in ('vacuum', 'reindex', 'create'
+    #                  'autovacuum:'
+                      ):
+        return sc.magenta(first)+' '+tail 
+    else:
+        return first+' '+tail
+
+    
+def main():
+    conn = psycopg2.connect( connstring )
+    curs = conn.cursor()
+
+    curs.execute('SELECT NOW()') # easier for time differences, in the face of timezones.
+    now, = curs.fetchone()
+
+    curs.execute('SELECT pid, datname, usename, xact_start, query_start, waiting, state, query  FROM pg_stat_activity ORDER BY pid')
+    rows = curs.fetchall()
+
+    curs.close()
+    conn.close()
+
+    show_usernames = (  len(  set( row[2]  for row in rows )  ) >1  )
+
+    nothing = True
+    idles = 0
+    for pid, datname, usename, xact_start, query_start, waiting, state, query in rows:
+        if 'pg_stat_activity' in query: # self (or other statusgetter)
+            continue # don't show
+
+        nothing = False # idles count, but not yourself
+        
+        if state=='idle':
+            idles+=1
+            continue # don't show
+        print sc.magenta('- '*40)
+
+        
+        print ' %20s  '%state,
+
+        if show_usernames:
+            print '%10s'%usename,
+
+        if 0:
+            if xact_start:
+                xact_start = now - xact_start#.replace(tzinfo=None)
+                xact_start = nicetimelength(xact_start)
+                print '%10s'%xact_start,
+            else:
+                print '          ',
+
+        if query_start:
+            query_start = now - query_start#.replace(tzinfo=None)
+            query_start = nicetimelength(query_start)
+            print '%10s'%query_start,
+        else:
+            print '          ',
+
+        if waiting:
+            print 'WAITING',
+        else:
+            print '       ',
+
+        #print sc.darkgray('PID: %-10s'%pid),
+            
+        if state != 'idle': # last query isn't current query if it's idle (most of the time anyway)
+            if 0 and len(query)<20:
+                print colorqtype(query)
+            else:
+                print
+                for i,line in enumerate(list(line.strip()   for line in query.splitlines()[:6])):
+                    if i==0:
+                        print colorqtype(line)
+                    else:
+                        print sc.darkgray(line)
+        else:
+            print
+
+    if idles>0:
+        print '- - - - '
+        print "And %s idle connections"%idles
+        
+    if nothing:
+        print "No queries"
+
+        
+if __name__=='__main__':
+    try: 
+        import setproctitle         # I like my tmux titles informative
+        setproctitle.setproctitle( os.path.basename(sys.argv[0]) )
+    except ImportError:
+        pass
+
+    while True:
+        print sc.clearscreen()
+        main()
+        time.sleep( interval_sec )
