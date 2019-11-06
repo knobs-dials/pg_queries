@@ -22,6 +22,6 @@ Not sure whether this can be cleverer, haven't studied it enough.
 TODO:
 - option parsing instead of hardcoded things
 - remember last query per PID, so we can get a better indication of *what* is causing idle in transaction
-
+- make compatible with multiple postgres servers (the table it queries has seen changes over time)
 
   
