@@ -1,5 +1,7 @@
 #!/usr/bin/python
 
+#TODO: keep list of recently noticed queries to also show
+
 import time
 import datetime
 import os
@@ -8,70 +10,11 @@ import sys
 import psycopg2
 
 import helpers_shellcolor as sc
+import helpers_format
 
-connstring   = 'dbname=postgres user=postgres host=localhost connect_timeout=5'
-interval_sec = 0.333
-
-
-def nicetimelength(sec, long=False, joinon=' ', parts=2, future=''):
-    """ Takes a relative amount of time (seconds as float/int, or a timedelta)
-        Returns a string describing that is human terms
-
-         e.g. nicetimelength(767)        == '12min 47sec',
-              nicetimelength(2615958475) == '82yr  11mo',
-    """
-    if type(sec) is datetime.timedelta:       
-       sec = sec.days*86400 + sec.seconds
-
-    vals = [
-        #('century','centuries','cent', 60.*60.*24.*365.*100. ),
-        ('year',   'years',    'yr',   60.*60.*24.*365.      ),
-        ('month',  'months',   'mo',   60.*60.*24.*30.6      ),
-        ('week',   'weeks',    'wk',   60.*60.*24.*7         ),
-        ('day',    'days',     'dy',   60.*60.*24.           ),
-        ('hour',   'hours',    'hr',   60.*60.               ),
-        ('minute', 'minutes',  'min',  60.                   ),
-        #('second', 'seconds',  'sec',  1.                    ),
-    ]
-    ret=[]
-    left = sec
-
-    if left<0:
-        ret.append(future)
-        left = abs(left)
-
-    roundme=False
-    if left>10:
-        roundme=True
-    for one,many,shorts,insec in vals:
-        if left>insec:
-            howmany = int(left/insec)
-            left -= howmany*insec
-            if long:
-                if howmany==1:
-                    ret.append( '1 %s'%(one) )
-                else:
-                    ret.append( '%d %s'%(howmany,many) )
-            else: # short form
-                ret.append('%2d%-3s'%(howmany,shorts))
-    if left>0.:
-        if roundme:
-            if long:
-                ret.append( '%d seconds'%(left) )
-            else:
-                ret.append( '%dsec'%(left) )
-        else:
-            if long:
-                ret.append( '%s seconds'%(sfloat(left,fixedwidth='')) )
-            else:
-                ret.append( '%ssec'%(sfloat(left,fixedwidth='', digits=2)) )
-                        
-    return joinon.join(ret[:parts])
-
-
-
+    
 def colorqtype(q):
-    # find the first word in the query
+    ' ANSI-colors a string based on the first word in the query '
     if ' ' in q:
         first,tail = q.strip().split(None,1) 
         tail = sc.darkgray(tail)
@@ -98,92 +41,191 @@ def colorqtype(q):
     else:
         return first+' '+tail
 
-    
 def main():
-    conn = psycopg2.connect( connstring )
-    curs = conn.cursor()
+    recent = {} # (starttime, pid) ->  (lastseen, query, state)
 
-    curs.execute('SELECT NOW()') # easier for time differences, in the face of timezones.
-    now, = curs.fetchone()
+    conn = psycopg2.connect('dbname=postgres user=postgres host=localhost connect_timeout=5')
 
-    curs.execute('SELECT pid, datname, usename, xact_start, query_start, waiting, state, query  FROM pg_stat_activity ORDER BY pid')
-    rows = curs.fetchall()
+    ignore_boring  = True
+    ignore_short   = False
+    interval_sec   = 0.05
+    maxlines       = 10
+    recent_seconds = 6
 
-    curs.close()
-    conn.close()
+    while True:
 
-    show_usernames = (  len(  set( row[2]  for row in rows )  ) >1  )
-
-    nothing = True
-    idles = 0
-    for pid, datname, usename, xact_start, query_start, waiting, state, query in rows:
-        if 'pg_stat_activity' in query: # self (or other statusgetter)
-            continue # don't show
-
-        nothing = False # idles count, but not yourself
-        
-        if state=='idle':
-            idles+=1
-            continue # don't show
-        print sc.magenta('- '*40)
-
-        
-        print ' %20s  '%state,
-
-        if show_usernames:
-            print '%10s'%usename,
-
-        if 0:
-            if xact_start:
-                xact_start = now - xact_start#.replace(tzinfo=None)
-                xact_start = nicetimelength(xact_start)
-                print '%10s'%xact_start,
-            else:
-                print '          ',
-
-        if query_start:
-            query_start = now - query_start#.replace(tzinfo=None)
-            query_start = nicetimelength(query_start)
-            print '%10s'%query_start,
-        else:
-            print '          ',
-
-        if waiting:
-            print 'WAITING',
-        else:
-            print '       ',
-
-        #print sc.darkgray('PID: %-10s'%pid),
+        conn = psycopg2.connect('dbname=postgres user=postgres host=localhost connect_timeout=5')
+        curs = conn.cursor()
+        #try:
+        #    curs = conn.cursor()
+        #except psycopg2.InterfaceError: # assume it's 'connection already closed' or similar
+        #    # TODO: be more robust to connectionc closing
+        #    print "New connection"
+        #    conn = psycopg2.connect('dbname=postgres user=postgres host=localhost connect_timeout=5')
             
-        if state != 'idle': # last query isn't current query if it's idle (most of the time anyway)
-            if 0 and len(query)<20:
-                print colorqtype(query)
-            else:
-                print
-                for i,line in enumerate(list(line.strip()   for line in query.splitlines()[:6])):
-                    if i==0:
-                        print colorqtype(line)
-                    else:
-                        print sc.darkgray(line)
-        else:
-            print
+        curs.execute('SELECT NOW()')  # to print age based on server time and avoid timezone confusion
+        now, = curs.fetchone()
 
-    if idles>0:
-        print '- - - - '
-        print "And %s idle connections"%idles
+        # TODO: figure out which fits for which version
+        #curs.execute('SELECT pid, datname, usename, xact_start, query_start, waiting, state, query  FROM pg_stat_activity ORDER BY pid')
+        curs.execute('SELECT pid, datname, usename, xact_start, query_start, state, query  FROM pg_stat_activity ORDER BY pid')
+        rows = curs.fetchall()
+
+
+        ## show usernames only when there is more than one user (or maybe 'if any not "postgres"')
+        #usernames = set( row[2]  for row in rows if row[2] not in (None,) )
+        #show_usernames = len(usernames)>1 
         
-    if nothing:
-        print "No queries"
+        print sc.clearscreen()
+        
+        idles = 0
+        for pid, datname, username, xact_start, query_start, state, query in rows:
+            #print `pid, datname, usename, xact_start, query_start, state, query`
+            query=query.strip()
 
+            # query time in seconds
+            query_time = None
+            if query_start:
+                query_time = now - query_start#.replace(tzinfo=None)
+                query_time = query_time.total_seconds()
+
+            if 'pg_stat_activity' in query: # self (or other statusgetter),
+                continue # don't report
+
+            if state=='idle':        # idles are counted, but not shown (implicitly also ignores 'last but not current command' confusion)
+                idles+=1
+                continue
+
+            if 'xact_start' in query: # self>
+                continue
+            if 'xact_commit' in query: # pg_top?
+                continue
+            if query_start == None: # unsure
+                continue
+
+            if ignore_boring and query in ('COMMIT','BEGIN','ROLLBACK'): # boring (put on parameter)
+                continue
+
+            if ignore_short and query_time < 0.1: # ignore very short running (put in parameter)
+                continue
+            
+            waiting = 'waiting' in state
+
+            # state can apparently be 'active', 'idle', 'idle in transaction',
+            #      'idle in transaction (aborted)', 'fastbath function call', 'disabled'
+            if state in ('working','waiting','active'): # (what are the others?)
+                recent[ (query_start,pid) ] = (now, query, state, waiting, username)
+            
+
+
+        ## Recemt nontrivial queries
+
+        
+
+        toprint_active = []
+        toprint_recent = []
+        new = {}
+
+        items = recent.items()
+        items.sort(lambda a, b: cmp(b[0][0],a[0][0]))
+        for (starttime,pid),  (lastseen,query, state, waiting, username) in items:
+            # note that some logic counts on the above not putting in idle-state  in this data
+            # and that we have our own memory of when it was active instead
+            
+            ### BOOKKEEPING
+            # dump old stuff  (still printed this round)
+            age          = (now-starttime ).total_seconds()
+            inactive_age = (now-lastseen).total_seconds()
+            if recent_seconds > inactive_age: # still printed but will be forgotten for the next round
+                new[ (starttime,pid) ] = (lastseen,query, state, waiting, username)
+
+            is_past = inactive_age > 0  # check whether that's quite how it reports
+
+            
+            ### SHOW
+            msg = []
+            # color state
+            state_s = ' %10s  '%state
+            if is_past:
+                state_s = ' '*13
+            else:
+                if state in ('idle in transaction',) and inactive_time > 1.0: # you probably want to add some rollbacks
+                    state_s = sc.orange(state_s)
+                elif state in ('waiting',):                                   # probably waiting on a lock
+                        state_s = sc.red(state_s)
+                elif state in ('working','active'): 
+                    if age > 5.0:                                             # slow query
+                        state_s = sc.red(state_s)
+                    elif age > 1.0:
+                        state_s = sc.orange(state_s)                          # slowish query
+            msg.append( state_s )
+            
+            #if show_usernames:
+            #    print '%10s'%usename,
+
+            #toprint.append( sc.darkgray( '%25s (%7s ago)   %s'%(tm,helpers_format.nicetimelength(ago), query) ) )
+
+            msg.append( sc.darkgray('PID: %-10s'%pid) )
+
+            
+            msg.append( "Started %s ago"%( helpers_format.nicetimelength(age), ) )
+
+            if inactive_age > 0:
+                msg.append( "last seen %7s ago   (so took approx %7s)"%(
+                    helpers_format.nicetimelength(inactive_age),
+                    helpers_format.nicetimelength(age-inactive_age)
+                    ) )
+
+            msg.append('\n')
+
+
+            # try to split query in a readable way (put on parameter)
+            for i,line in enumerate(list(line.strip()   for line in query.splitlines()[:maxlines])):
+                if i==0:
+                    msg.append( colorqtype(line) )
+                else:
+                    msg.append( sc.darkgray(line) )
+                    
+            if inactive_age > 0:
+                toprint_recent.append( ' '.join(msg) ) 
+            else:
+                toprint_active.append( ' '.join(msg) )
+                
+
+        print sc.green("### Active queries #####################")
+        if len(toprint_active)>0:
+            for thing in toprint_active:
+                print thing
+                print sc.magenta('- '*40) # separator
+        else:
+            print "No active/recent queries"
+        if idles>0:
+            print "And %s idle connections"%idles
+
+            
+        if len(toprint_recent)>0:
+            print 
+            print 
+            print 
+            print sc.cyan("### Recent queries #######################")
+            for thing in toprint_recent:
+                print thing
+                print sc.magenta('- '*40) # separator
+            
+        recent = new
+            
+        curs.close()
+        
+        time.sleep( interval_sec )
+            
+    conn.close()
         
 if __name__=='__main__':
+
     try: 
         import setproctitle         # I like my tmux titles informative
         setproctitle.setproctitle( os.path.basename(sys.argv[0]) )
     except ImportError:
         pass
 
-    while True:
-        print sc.clearscreen()
-        main()
-        time.sleep( interval_sec )
+    main()
