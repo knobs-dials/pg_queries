@@ -6,6 +6,7 @@ import time
 import datetime
 import os
 import sys
+import re
 
 import psycopg2
 
@@ -14,7 +15,7 @@ import helpers_format
 
     
 def colorqtype(q):
-    ' ANSI-colors a string based on the first word in the query '
+    ' ANSI-colors a string, based on the first word in the query '
     if ' ' in q:
         first,tail = q.strip().split(None,1) 
         tail = sc.darkgray(tail)
@@ -23,7 +24,6 @@ def colorqtype(q):
         tail=''
 
     flow = first.lower()
-    #print `flow`
     if flow=='select':
         return sc.yellow(first)+' '+tail 
     elif flow=='update':
@@ -34,34 +34,56 @@ def colorqtype(q):
         return sc.red(first)+' '+tail 
     elif flow=='commit':
         return sc.brightblue(first)+' '+tail 
-    elif flow in ('vacuum', 'reindex', 'create'
-    #                  'autovacuum:'
-                      ):
+    elif flow in ('vacuum', 'reindex',
+                  'autovacuum:', 'analyse',
+                  'create', 'drop',
+                 ):
         return sc.magenta(first)+' '+tail 
     else:
         return first+' '+tail
 
+
+    
 def main():
     recent = {} # (starttime, pid) ->  (lastseen, query, state)
 
-    conn = psycopg2.connect('dbname=postgres user=postgres host=localhost connect_timeout=5')
+    from optparse import OptionParser    
+    p = OptionParser() 
+    p.add_option("-I", "--dont-ignore-boring",
+                 dest="ignoreboring", default=True, action='store_false',
+                 help="By default we ignore things like COMMIT, BEGIN, and ROLLBACK. This shows them.")
 
-    ignore_boring  = True
-    ignore_short   = False
-    interval_sec   = 0.05
-    maxlines       = 10
-    recent_seconds = 6
+    p.add_option("-t", "--worktime-threshold",
+                 dest="shortthresh", default='0.1', action='store_false',
+                 help="Show only queries that took at least this many seconds. Defaults to 0.1. 0 shows more (but not all because we're polling), higher would help focus on long running queries.")
+    
+    p.add_option("-f", "--forget-time",
+                 dest="forgettime", default='10',
+                 help="Forget recent queries after this many seconds. Defaults to 10")
+    
+    p.add_option("-i", "--poll-interval",
+                 dest="pollinterval", default='0.1',
+                 help="Poll interval, in seconds. Defaults to 0.1. You can lower this to miss less.")
 
+    p.add_option("-S", "--split-query",
+                 dest="splitquery", default=True, action='store_false',
+                 help="Default is to (re)split query over lines for readability. This puts it all on one line.")  # CONSIDER: truncating
+    p.add_option("-m", "--max-query-lines",
+                 dest="querylines", default='10',
+                 help="Show first this-many lines of the split query. Defaults to 10.") 
+    options, args = p.parse_args()  # defaults to parsing sys.argv[1:].  May exit the program.
+    
+    ignore_boring        =       options.ignoreboring
+    short_running_thresh = float(options.shortthresh)
+    splitquery           =       options.splitquery
+    maxlines             =   int(options.querylines)
+    recent_seconds       = float(options.forgettime)
+    interval_sec         = float(options.pollinterval)
+
+ 
     while True:
-
         conn = psycopg2.connect('dbname=postgres user=postgres host=localhost connect_timeout=5')
         curs = conn.cursor()
-        #try:
-        #    curs = conn.cursor()
-        #except psycopg2.InterfaceError: # assume it's 'connection already closed' or similar
-        #    # TODO: be more robust to connectionc closing
-        #    print "New connection"
-        #    conn = psycopg2.connect('dbname=postgres user=postgres host=localhost connect_timeout=5')
             
         curs.execute('SELECT NOW()')  # to print age based on server time and avoid timezone confusion
         now, = curs.fetchone()
@@ -70,13 +92,12 @@ def main():
         #curs.execute('SELECT pid, datname, usename, xact_start, query_start, waiting, state, query  FROM pg_stat_activity ORDER BY pid')
         curs.execute('SELECT pid, datname, usename, xact_start, query_start, state, query  FROM pg_stat_activity ORDER BY pid')
         rows = curs.fetchall()
-
+        curs.close()
+        conn.close()
 
         ## show usernames only when there is more than one user (or maybe 'if any not "postgres"')
         #usernames = set( row[2]  for row in rows if row[2] not in (None,) )
         #show_usernames = len(usernames)>1 
-        
-        print sc.clearscreen()
         
         idles = 0
         for pid, datname, username, xact_start, query_start, state, query in rows:
@@ -103,10 +124,10 @@ def main():
             if query_start == None: # unsure
                 continue
 
-            if ignore_boring and query in ('COMMIT','BEGIN','ROLLBACK'): # boring (put on parameter)
+            if ignore_boring and query in ('COMMIT','BEGIN','ROLLBACK'):
                 continue
 
-            if ignore_short and query_time < 0.1: # ignore very short running (put in parameter)
+            if query_time < short_running_thresh: # ignore very short running queries
                 continue
             
             waiting = 'waiting' in state
@@ -118,14 +139,9 @@ def main():
             
 
 
-        ## Recemt nontrivial queries
-
-        
-
+        new = {} # will be next round's recent state
         toprint_active = []
         toprint_recent = []
-        new = {}
-
         items = recent.items()
         items.sort(lambda a, b: cmp(b[0][0],a[0][0]))
         for (starttime,pid),  (lastseen,query, state, waiting, username) in items:
@@ -179,46 +195,52 @@ def main():
             msg.append('\n')
 
 
-            # try to split query in a readable way (put on parameter)
-            for i,line in enumerate(list(line.strip()   for line in query.splitlines()[:maxlines])):
-                if i==0:
-                    msg.append( colorqtype(line) )
-                else:
-                    msg.append( sc.darkgray(line) )
+            # try to split query in a readable way (put on parameter?)
+            if splitquery:
+                for i,line in enumerate(list(line.strip()   for line in query.splitlines()[:maxlines])):
+                    if i==0:
+                        msg.append( colorqtype(line) )
+                    else:
+                        msg.append( sc.darkgray(line) )
+            else:
+                msg.append( colorqtype( re.sub('[\r\n\s]+', ' ', query) ) )
                     
             if inactive_age > 0:
                 toprint_recent.append( ' '.join(msg) ) 
             else:
                 toprint_active.append( ' '.join(msg) )
-                
 
-        print sc.green("### Active queries #####################")
+                
+        print sc.clearscreen()
+
+            
+        if idles>0:
+            print sc.yellow("# Idle connections: %d"%idles)
+            print
+            print
+        
+        print sc.green("# Active queries")
         if len(toprint_active)>0:
             for thing in toprint_active:
                 print thing
                 print sc.magenta('- '*40) # separator
         else:
-            print "No active/recent queries"
-        if idles>0:
-            print "And %s idle connections"%idles
+            print "No active queries"
 
             
         if len(toprint_recent)>0:
             print 
             print 
             print 
-            print sc.cyan("### Recent queries #######################")
+            print sc.cyan("# Recent queries  (%d seconds)"%recent_seconds)
             for thing in toprint_recent:
                 print thing
                 print sc.magenta('- '*40) # separator
             
         recent = new
             
-        curs.close()
         
         time.sleep( interval_sec )
-            
-    conn.close()
         
 if __name__=='__main__':
 
