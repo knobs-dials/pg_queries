@@ -1,9 +1,11 @@
 # pg_queries
 
-Shows current queries in postgresql server, amount of query time, colored by query type, shows amount of idles but ignore their details.
-
-Has its own memory of recent queries (so that we can still show the for a short while).
-
+Shows 
+- current queries
+  - amount of query time (estimated, with a resolution relating our polling interval)
+  - colored by query type
+- amount of idle connections (and ignores their details, like the most recent query)
+- recent queries (not based on idle state but on our own memory)
 
 
 Some of these are things I'd like to see in pg_top, so even I only use this when pg_top isn't informative enough, 
