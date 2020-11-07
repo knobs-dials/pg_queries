@@ -14,24 +14,19 @@ import helpers_shellcolor as sc
 
 
 def nicetimelength(sec, long=False, joinon=' ', parts=2, future=''):
-    """ Takes a relative amount of time (seconds as float/int, or a timedelta)
-        Returns a string describing that is human terms
-
-         e.g. nicetimelength(767)        == '12min 47sec',
-              nicetimelength(2615958475) == '82yr  11mo',
+    """ Takes a relative amount of time (seconds as float/int, or a timedelta),
+        returns a string like  '12min 47sec'.
     """
     if type(sec) is datetime.timedelta:       
        sec = sec.days*86400 + sec.seconds
 
     vals = [
-        #('century','centuries','cent', 60.*60.*24.*365.*100. ),
         ('year',   'years',    'yr',   60.*60.*24.*365.      ),
         ('month',  'months',   'mo',   60.*60.*24.*30.6      ),
         ('week',   'weeks',    'wk',   60.*60.*24.*7         ),
         ('day',    'days',     'dy',   60.*60.*24.           ),
         ('hour',   'hours',    'hr',   60.*60.               ),
         ('minute', 'minutes',  'min',  60.                   ),
-        #('second', 'seconds',  'sec',  1.                    ),
     ]
     ret=[]
     left = sec
@@ -65,7 +60,6 @@ def nicetimelength(sec, long=False, joinon=' ', parts=2, future=''):
                 ret.append( '%.1f seconds'%(left) )
             else:
                 ret.append( '%.1fsec'%( left ) )
-                        
     return joinon.join(ret[:parts])
 
 
@@ -78,7 +72,6 @@ def colorqtype(q):
     else: # hacky
         first=q
         tail=''
-
     flow = first.lower()
     if flow=='select':
         return sc.yellow(first)+' '+tail 
@@ -108,19 +101,15 @@ def main():
     p.add_option("-I", "--dont-ignore-boring",
                  dest="ignoreboring", default=True, action='store_false',
                  help="By default we ignore things like COMMIT, BEGIN, and ROLLBACK. This shows them.")
-
     p.add_option("-t", "--worktime-threshold",
                  dest="shortthresh", default='0.1', action='store_false',
                  help="Show only queries that took at least this many seconds. Defaults to 0.1. 0 shows more (but not all because we're polling), higher would help focus on long running queries.")
-    
     p.add_option("-f", "--forget-time",
                  dest="forgettime", default='10',
                  help="Forget recent queries after this many seconds. Defaults to 10")
-    
     p.add_option("-i", "--poll-interval",
                  dest="pollinterval", default='0.1',
                  help="Poll interval, in seconds. Defaults to 0.1. You can lower this to miss less.")
-
     p.add_option("-S", "--split-query",
                  dest="splitquery", default=True, action='store_false',
                  help="Default is to (re)split query over lines for readability. This puts it all on one line.")  # CONSIDER: truncating
@@ -151,12 +140,11 @@ def main():
         conn.close()
 
         ## show usernames only when there is more than one user (or maybe 'if any not "postgres"')
-        #usernames = set( row[2]  for row in rows if row[2] not in (None,) )
-        #show_usernames = len(usernames)>1 
+        usernames = set( row[2]  for row in rows if row[2] not in (None,) )
+        show_usernames = len(usernames)>1 
         
         idles = 0
         for pid, datname, username, xact_start, query_start, state, query in rows:
-            #print `pid, datname, usename, xact_start, query_start, state, query`
             query=query.strip()
 
             # query time in seconds
@@ -182,7 +170,7 @@ def main():
             if ignore_boring and query in ('COMMIT','BEGIN','ROLLBACK'):
                 continue
 
-            if query_time < short_running_thresh: # ignore very short running queries
+            if query_time < short_running_thresh: # ignore quickly-finished queries completely
                 continue
             
             waiting = 'waiting' in state
@@ -203,7 +191,7 @@ def main():
             # note that some logic counts on the above not putting in idle-state  in this data
             # and that we have our own memory of when it was active instead
             
-            ### BOOKKEEPING
+            ### bookkeeping
             # dump old stuff  (still printed this round)
             age          = (now-starttime ).total_seconds()
             inactive_age = (now-lastseen).total_seconds()
@@ -213,7 +201,7 @@ def main():
             is_past = inactive_age > 0  # check whether that's quite how it reports
             
             
-            ### SHOW
+            ### display logic
             msg = []
             # color state
             state_s = ' %10s  '%state
@@ -231,8 +219,8 @@ def main():
                         state_s = sc.orange(state_s)                          # slowish query
             msg.append( state_s )
             
-            #if show_usernames:
-            #    print '%10s'%usename,
+            if show_usernames:
+                msg.append( '%10s'%username )
                         
             msg.append( sc.darkgray('PID: %-10s'%pid) )
             
