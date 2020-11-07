@@ -20,7 +20,6 @@ Not sure whether this can be cleverer, haven't studied it enough.
 
 
 TODO:
-- option parsing instead of hardcoded things
 - make compatible with multiple postgres servers (the table it queries has seen changes over time)
 
   
