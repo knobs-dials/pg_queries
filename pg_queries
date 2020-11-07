@@ -2,18 +2,74 @@
 
 #TODO: keep list of recently noticed queries to also show
 
-import time
-import datetime
-import os
-import sys
+import time, datetime
+import os, sys
 import re
 
 import psycopg2
 
 import helpers_shellcolor as sc
-import helpers_format
 
-    
+
+
+
+def nicetimelength(sec, long=False, joinon=' ', parts=2, future=''):
+    """ Takes a relative amount of time (seconds as float/int, or a timedelta)
+        Returns a string describing that is human terms
+
+         e.g. nicetimelength(767)        == '12min 47sec',
+              nicetimelength(2615958475) == '82yr  11mo',
+    """
+    if type(sec) is datetime.timedelta:       
+       sec = sec.days*86400 + sec.seconds
+
+    vals = [
+        #('century','centuries','cent', 60.*60.*24.*365.*100. ),
+        ('year',   'years',    'yr',   60.*60.*24.*365.      ),
+        ('month',  'months',   'mo',   60.*60.*24.*30.6      ),
+        ('week',   'weeks',    'wk',   60.*60.*24.*7         ),
+        ('day',    'days',     'dy',   60.*60.*24.           ),
+        ('hour',   'hours',    'hr',   60.*60.               ),
+        ('minute', 'minutes',  'min',  60.                   ),
+        #('second', 'seconds',  'sec',  1.                    ),
+    ]
+    ret=[]
+    left = sec
+
+    if left<0:
+        ret.append(future)
+        left = abs(left)
+
+    roundme=False
+    if left>10:
+        roundme=True
+    for one,many,shorts,insec in vals:
+        if left>insec:
+            howmany = int(left/insec)
+            left -= howmany*insec
+            if long:
+                if howmany==1:
+                    ret.append( '1 %s'%(one) )
+                else:
+                    ret.append( '%d %s'%(howmany,many) )
+            else: # short form
+                ret.append('%2d%-3s'%(howmany,shorts))
+    if left>=0.:
+        if roundme:
+            if long:
+                ret.append( '%d seconds'%(left) )
+            else:
+                ret.append( '%dsec'%(left) )
+        else:
+            if long:
+                ret.append( '%.1f seconds'%(left) )
+            else:
+                ret.append( '%.1fsec'%( left ) )
+                        
+    return joinon.join(ret[:parts])
+
+
+
 def colorqtype(q):
     ' ANSI-colors a string, based on the first word in the query '
     if ' ' in q:
@@ -80,7 +136,6 @@ def main():
     recent_seconds       = float(options.forgettime)
     interval_sec         = float(options.pollinterval)
 
- 
     while True:
         conn = psycopg2.connect('dbname=postgres user=postgres host=localhost connect_timeout=5')
         curs = conn.cursor()
@@ -154,9 +209,9 @@ def main():
             inactive_age = (now-lastseen).total_seconds()
             if recent_seconds > inactive_age: # still printed but will be forgotten for the next round
                 new[ (starttime,pid) ] = (lastseen,query, state, waiting, username)
-
+            
             is_past = inactive_age > 0  # check whether that's quite how it reports
-
+            
             
             ### SHOW
             msg = []
@@ -178,20 +233,18 @@ def main():
             
             #if show_usernames:
             #    print '%10s'%usename,
-
-            #toprint.append( sc.darkgray( '%25s (%7s ago)   %s'%(tm,helpers_format.nicetimelength(ago), query) ) )
-
+                        
             msg.append( sc.darkgray('PID: %-10s'%pid) )
-
             
-            msg.append( "Started %s ago"%( helpers_format.nicetimelength(age), ) )
-
+            
+            msg.append( "Started %s ago"%( nicetimelength(age), ) )
+            
             if inactive_age > 0:
                 msg.append( "last seen %7s ago   (so took approx %7s)"%(
-                    helpers_format.nicetimelength(inactive_age),
-                    helpers_format.nicetimelength(age-inactive_age)
+                    nicetimelength(inactive_age),
+                    nicetimelength(age-inactive_age)
                     ) )
-
+            
             msg.append('\n')
 
 
@@ -202,17 +255,18 @@ def main():
                         msg.append( colorqtype(line) )
                     else:
                         msg.append( sc.darkgray(line) )
-            else:
+            else: # maybe also have option for 'as is'?
                 msg.append( colorqtype( re.sub('[\r\n\s]+', ' ', query) ) )
-                    
+                
+            # active or recent?
             if inactive_age > 0:
                 toprint_recent.append( ' '.join(msg) ) 
             else:
                 toprint_active.append( ' '.join(msg) )
 
                 
+        # actually print
         print sc.clearscreen()
-
             
         if idles>0:
             print sc.yellow("# Idle connections: %d"%idles)
@@ -236,11 +290,13 @@ def main():
             for thing in toprint_recent:
                 print thing
                 print sc.magenta('- '*40) # separator
-            
+
+                
         recent = new
-            
-        
+                    
         time.sleep( interval_sec )
+
+        
         
 if __name__=='__main__':
 
