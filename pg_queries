@@ -102,11 +102,14 @@ def main():
                  dest="ignoreboring", default=True, action='store_false',
                  help="By default we ignore things like COMMIT, BEGIN, and ROLLBACK. This shows them.")
     p.add_option("-t", "--worktime-threshold",
-                 dest="shortthresh", default='0.1', action='store_false',
-                 help="Show only queries that took at least this many seconds. Defaults to 0.1. 0 shows more (but not all because we're polling), higher would help focus on long running queries.")
+                 dest="shortthresh", default='0.1',
+                 help="Show only active/recent queries that took at least this many seconds. Defaults to 0.1. 0 shows more (but not all, because we're polling).")
     p.add_option("-f", "--forget-time",
                  dest="forgettime", default='10',
                  help="Forget recent queries after this many seconds. Defaults to 10")
+    p.add_option("-r", "--max-recent",
+                 dest="maxrecent", default='20',
+                 help="Show at most this-many recent queries, e.g. to avoid scrolling off the real ones. Defaults to 20.") 
     p.add_option("-i", "--poll-interval",
                  dest="pollinterval", default='0.1',
                  help="Poll interval, in seconds. Defaults to 0.1. You can lower this to miss less.")
@@ -117,13 +120,15 @@ def main():
                  dest="querylines", default='10',
                  help="Show first this-many lines of the split query. Defaults to 10.") 
     options, args = p.parse_args()  # defaults to parsing sys.argv[1:].  May exit the program.
-    
+
     ignore_boring        =       options.ignoreboring
     short_running_thresh = float(options.shortthresh)
     splitquery           =       options.splitquery
+    maxrecent            =   int(options.maxrecent)
     maxlines             =   int(options.querylines)
     recent_seconds       = float(options.forgettime)
     interval_sec         = float(options.pollinterval)
+    print options.shortthresh, short_running_thresh
 
     while True:
         conn = psycopg2.connect('dbname=postgres user=postgres host=localhost connect_timeout=5')
@@ -132,19 +137,27 @@ def main():
         curs.execute('SELECT NOW()')  # to print age based on server time and avoid timezone confusion
         now, = curs.fetchone()
 
+        curs.execute('SHOW max_connections')  # to print age based on server time and avoid timezone confusion
+        connlimit = int( curs.fetchone()[0] )
+        
         # TODO: figure out which fits for which version
         #curs.execute('SELECT pid, datname, usename, xact_start, query_start, waiting, state, query  FROM pg_stat_activity ORDER BY pid')
         curs.execute('SELECT pid, datname, usename, xact_start, query_start, state, query  FROM pg_stat_activity ORDER BY pid')
         rows = curs.fetchall()
         curs.close()
         conn.close()
-
+        
         ## show usernames only when there is more than one user (or maybe 'if any not "postgres"')
         usernames = set( row[2]  for row in rows if row[2] not in (None,) )
-        show_usernames = len(usernames)>1 
-        
-        idles = 0
+        show_usernames = len(usernames)>1
+
+        # state can apparently be 'active', 'idle', 'idle in transaction', 'idle in transaction (aborted)', 'fastbath function call', 'disabled'
+
+        connamt = 0
+        idles, shorts, borings = 0, 0, 0
+        iit = []
         for pid, datname, username, xact_start, query_start, state, query in rows:
+            connamt += 1
             query=query.strip()
 
             # query time in seconds
@@ -156,29 +169,30 @@ def main():
             if 'pg_stat_activity' in query: # self (or other statusgetter),
                 continue # don't report
 
-            if state=='idle':        # idles are counted, but not shown (implicitly also ignores 'last but not current command' confusion)
+            if state=='idle':        # idles are counted, but not shown   (avoids 'last but not current query' confusion)
                 idles+=1
                 continue
 
-            if 'xact_start' in query: # self>
+            if state!=None and 'idle in transaction' in state:
+                iit.append( query )
+
+            if 'xact_start' in query:  # self?   (check this)
                 continue
-            if 'xact_commit' in query: # pg_top?
+            if 'xact_commit' in query: # pg_top? (check this)
                 continue
-            if query_start == None: # unsure
+            if query_start == None:    # unsure
                 continue
 
             if ignore_boring and query in ('COMMIT','BEGIN','ROLLBACK'):
+                borings += 1
                 continue
 
-            if query_time < short_running_thresh: # ignore quickly-finished queries completely
+            if query_time < short_running_thresh: # don't enter quickly-finished queries (ignore them completely)
+                shorts += 1
                 continue
             
-            waiting = 'waiting' in state
-
-            # state can apparently be 'active', 'idle', 'idle in transaction',
-            #      'idle in transaction (aborted)', 'fastbath function call', 'disabled'
             if state in ('working','waiting','active'): # (what are the others?)
-                recent[ (query_start,pid) ] = (now, query, state, waiting, username)
+                recent[ (query_start,pid) ] = (now, query, state, username)
             
 
 
@@ -187,7 +201,9 @@ def main():
         toprint_recent = []
         items = recent.items()
         items.sort(lambda a, b: cmp(b[0][0],a[0][0]))
-        for (starttime,pid),  (lastseen,query, state, waiting, username) in items:
+        for (starttime,pid),  (lastseen,query, state, username) in items:
+            waiting = 'waiting' in state
+            
             # note that some logic counts on the above not putting in idle-state  in this data
             # and that we have our own memory of when it was active instead
             
@@ -196,7 +212,7 @@ def main():
             age          = (now-starttime ).total_seconds()
             inactive_age = (now-lastseen).total_seconds()
             if recent_seconds > inactive_age: # still printed but will be forgotten for the next round
-                new[ (starttime,pid) ] = (lastseen,query, state, waiting, username)
+                new[ (starttime,pid) ] = (lastseen,query, state, username)
             
             is_past = inactive_age > 0  # check whether that's quite how it reports
             
@@ -210,9 +226,9 @@ def main():
             else:
                 if state in ('idle in transaction',) and inactive_time > 1.0: # you probably want to add some rollbacks
                     state_s = sc.orange(state_s)
-                elif state in ('waiting',):                                   # probably waiting on a lock
-                        state_s = sc.red(state_s)
-                elif state in ('working','active'): 
+                elif waiting:                                                 # waiting on a lock
+                    state_s = sc.red(state_s)
+                elif state in ('working','active'):
                     if age > 5.0:                                             # slow query
                         state_s = sc.red(state_s)
                     elif age > 1.0:
@@ -221,21 +237,21 @@ def main():
             
             if show_usernames:
                 msg.append( '%10s'%username )
-                        
+            
             msg.append( sc.darkgray('PID: %-10s'%pid) )
             
             
             msg.append( "Started %s ago"%( nicetimelength(age), ) )
             
             if inactive_age > 0:
-                msg.append( "last seen %7s ago   (so took approx %7s)"%(
+                msg.append( "   last seen %7s ago   (so took approx %7s)"%(
                     nicetimelength(inactive_age),
                     nicetimelength(age-inactive_age)
                     ) )
             
             msg.append('\n')
-
-
+            
+            
             # try to split query in a readable way (put on parameter?)
             if splitquery:
                 for i,line in enumerate(list(line.strip()   for line in query.splitlines()[:maxlines])):
@@ -245,22 +261,30 @@ def main():
                         msg.append( sc.darkgray(line) )
             else: # maybe also have option for 'as is'?
                 msg.append( colorqtype( re.sub('[\r\n\s]+', ' ', query) ) )
-                
+            
             # active or recent?
             if inactive_age > 0:
-                toprint_recent.append( ' '.join(msg) ) 
+                if age-inactive_age > short_running_thresh:
+                    toprint_recent.append( ' '.join(msg) )
+                else:
+                    shorts += 1
             else:
                 toprint_active.append( ' '.join(msg) )
-
+        
                 
         # actually print
         print sc.clearscreen()
-            
-        if idles>0:
-            print sc.yellow("# Idle connections: %d"%idles)
-            print
-            print
         
+        print sc.brightblue("%d open connections,  %d idle   (limit: %d)"%(connamt, idles, connlimit))
+
+        print sc.brightblue("Ignored short-running queries: %d"%shorts)
+        #print sc.yellow("# Boring queries: %d"%borings)
+        print sc.brightblue("Idle in transaction: %d"%len(iit))
+        #for q in iit:
+        #    print "#   most recent query: %s"%q
+        print
+        print
+            
         print sc.green("# Active queries")
         if len(toprint_active)>0:
             for thing in toprint_active:
@@ -268,20 +292,20 @@ def main():
                 print sc.magenta('- '*40) # separator
         else:
             print "No active queries"
-
-            
+        
+        
         if len(toprint_recent)>0:
             print 
             print 
             print 
-            print sc.cyan("# Recent queries  (%d seconds)"%recent_seconds)
-            for thing in toprint_recent:
+            print sc.cyan("# Recent queries  (up to %s  from the last %d seconds)"%(maxrecent, recent_seconds, ))
+            for thing in toprint_recent[:maxrecent]:
                 print thing
                 print sc.magenta('- '*40) # separator
-
-                
+        
+        
         recent = new
-                    
+        
         time.sleep( interval_sec )
 
         
