@@ -1,11 +1,11 @@
 # pg_queries
 
 Shows 
+- amount of idle connections
 - current queries
   - amount of query time (estimated, with a resolution relating our polling interval)
   - colored by query type
-- amount of idle connections (and ignores their details, like the most recent query)
-- recent queries (not based on idle state but on our own memory)
+- recent queries (based on our on memory, nor  idle state in an unused worker)
 
 
 Some of these are things I'd like to see in pg_top, so even I only use this when pg_top isn't informative enough, 
