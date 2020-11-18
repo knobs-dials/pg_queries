@@ -1,15 +1,16 @@
 # pg_queries
 
 Shows 
-- amount of idle connections
-- current queries
+- amount of active, idle, idle in transaction, and max connections
+- current active queries 
   - amount of query time (estimated, with a resolution relating our polling interval)
   - colored by query type
-- recent queries (based on our on memory, nor  idle state in an unused worker)
+- recent queries (based on our on memory, not idle state in an unused worker)
 
 
-Some of these are things I'd like to see in pg_top, so even I only use this when pg_top isn't informative enough, 
-e.g. when I want to see idle-in-transaction messiness, or the specific queries that dominate even when not indiviually crossing log_min_duration_statement.
+Can filter out things that are done very quickly - because it's aimed at finding clients that could use a little work - more efficient queries, less idle in transaction, that kind of thing.
+
+Some of these are things I'd like to see in pg_top, or are just a little easier than setting log_min_duration_statement and checking logs.
 
 
 # connecting
