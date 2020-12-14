@@ -1,6 +1,6 @@
 #!/usr/bin/python
 
-#TODO: keep list of recently noticed queries to also show
+# CONSIDER: showing locks (from pg_locks)
 
 import time, datetime
 import os, sys
@@ -100,19 +100,19 @@ def main():
     p = OptionParser() 
     p.add_option("-i", "--poll-interval",
                  dest="pollinterval", default='0.05',
-                 help="Poll interval, in seconds. Defaults to 0.05. You can lower this to miss less.")
+                 help="Poll interval, in seconds. Defaults to 0.05.")
     p.add_option("-t", "--worktime-threshold",
                  dest="shortthresh", default='0.1',
-                 help="Show only active/recent queries that took at least this many seconds. Defaults to 0.1. 0 shows more (but not all, because we're polling). Higher will show only slow queries")
+                 help="Show only active/recent queries that took at least this many seconds. Higher will show only slower queries. Lower, like 0, shows most (but not all, because we're polling). Defaults to 0.1.")
     p.add_option("-f", "--forget-time",
                  dest="forgettime", default='30',
                  help="Forget recent queries after this many seconds. Defaults to 30")
     p.add_option("-r", "--max-recent",
                  dest="maxrecent", default='10',
-                 help="Show at most this-many recent queries, e.g. to avoid scrolling off the real ones. Defaults to 10.") 
+                 help="Show at most this-many recent queries, e.g. to help avoid scrolling off the active ones. Defaults to 10.") 
     p.add_option("-S", "--split-query",
                  dest="splitquery", default=True, action='store_false',
-                 help="Default is to (re)split query over lines for readability. This puts it all on one line.")  # CONSIDER: truncating
+                 help="Default is to (re)split queres over lines, for readability. This puts it all on one line.")  # CONSIDER: truncating
     p.add_option("-m", "--max-query-lines",
                  dest="querylines", default='10',
                  help="Show first this-many lines of the split query. Defaults to 10.") 
@@ -140,19 +140,21 @@ def main():
         curs.execute('SHOW max_connections')  # to print age based on server time and avoid timezone confusion
         connlimit = int( curs.fetchone()[0] )
         
-        # TODO: figure out which fits for which version
+        # TODO: figure out which fits for which version. Seems to have changed a few times in 9 versions
         #curs.execute('SELECT pid, datname, usename, xact_start, query_start, waiting, state, query  FROM pg_stat_activity ORDER BY pid')
-        curs.execute('SELECT pid, datname, usename, xact_start, query_start, state, query  FROM pg_stat_activity ORDER BY pid')
+        # TODO: figure out all reasons that fields are mostly NULL
+        curs.execute('SELECT pid, datname, usename, xact_start, query_start, state, query,  wait_event, wait_event_type  FROM pg_stat_activity ORDER BY pid')
         rows = curs.fetchall()
         curs.close()
         conn.close()
         
+        print sc.clearscreen()
+        
         connamt = 0
-        idles, shorts, borings = 0, 0, 0
-        for pid, datname, username, xact_start, query_start, state, query in rows:
+        actives, waitings, idles, shorts, borings = 0, 0, 0, 0, 0
+        for pid, datname, username, xact_start, query_start, state, query,  we,wet in rows:
             connamt += 1
             query=query.strip()
-
             # query time in seconds
             query_time = None
             if query_start:
@@ -162,11 +164,19 @@ def main():
             if 'pg_stat_activity' in query: # self (or other statusgetter),
                 continue # don't report
             
-            if state=='idle':          # idles are counted, but not shown   (avoids 'last, not current query' confusion)
+            if state in ('idle',):
+                # idles are counted, but not shown   (avoids 'last, not current query' confusion)
                 idles+=1
                 continue
 
+            if wet=='Activity': # This is for pg processes (we will be something like 'CheckpointerMain','BgWriterHibernate','WalWriterMain','AutoVacuumMain','LogicalLauncherMain')
+                # and signals 'waiting for activity' i.e. idleness
+                # I think these don't count towards connections, so we ignore them
+                continue
             
+            if state in ('active',):
+                actives += 1
+                
             if 'xact_start' in query:  # self?   (check this)
                 continue
             if 'xact_commit' in query: # pg_top? (check this)
@@ -184,7 +194,7 @@ def main():
                 continue
             
             if state in ('working','waiting','active', 'idle in transaction','idle in transaction (aborted)'): # the others seem to be 'idle', 'fastbath function call', 'disabled'
-                recent[ (query_start,pid) ] = (now, query, state, username, datname)            
+                recent[ (query_start,pid) ] = (now, query, state, username, datname, we, wet)            
 
 
         new = {} # will be next round's recent state
@@ -193,39 +203,66 @@ def main():
         toprint_recent = []
         items = recent.items()
         items.sort(lambda a, b: cmp(b[0][0],a[0][0]))
-        for (starttime,pid),  (lastseen,query, state, username, datname) in items:
-            waiting = 'waiting' in state
-            
-            # note that some logic counts on the above not putting in idle-state  in this data
-            # and that we have our own memory of when it was active instead
-            
+        for (starttime,pid),  (lastseen,query, state, username, datname, we, wet) in items:
             ### bookkeeping
             # dump old stuff  (still printed this round)
+            # note that some logic counts on the above not putting in idle-state  in this data
+            # and that we have our own memory of when it was active instead
             age          = (now-starttime ).total_seconds()
             inactive_age = (now-lastseen).total_seconds()
             if recent_seconds > inactive_age: # still printed but will be forgotten for the next round
                 if not 'idle in transaction' in state: # iit should make it here (logic is easier) but never remembered
-                    new[ (starttime,pid) ] = (lastseen,query, state, username, datname)
+                    new[ (starttime,pid) ] = (lastseen,query, state, username, datname, we,wet)
             
             is_past = inactive_age > 0  # check whether that's quite how it reports
             is_iit  = 'idle in transaction' in state
+
+            
+            ### 
+            msg = []
+
+            state_s = ' %10s  '%state
+
+            waiting = False
+            waitingon = 'FIXME'
+            #print state,we,wet,query
+            # WET is broader category, WE is details?
+            if we!=None: # ...and active? (wait_event is details to various things, e.g. ClientRead for idle.    Looks like various were added around pg10)
+                # there is overlap I'm trying to generalize, so order matters
+                if 'Lock' in wet: # including WAL lock
+                    waitingon="wait:lock"
+                elif 'wal' in we.lower():  # ...so this is mostly WAL IO?
+                    waitingon="wait:WAL"
+                elif 'IO' in wet: # and this is mostly other IO?
+                    waitingon="wait:IO"
+                elif 'Client' in wet:
+                    waitingon="wait:client"
+                else:
+                    waitingon='wait:%s'%wet
+                #print 'WE:%r  WET:%r'%(we,wet)
+                waitings += 1  # decide whether to also consider this active
+                #state='waiting'
+                waiting = True
+                state_s = ' %10s  '%waitingon
             
             ### display logic
-            msg = []
             # color state
-            state_s = ' %10s  '%state
             if is_past:
                 state_s = ' '*13
-            else:
-                if is_iit: # you probably want to add some rollbacks
-                    state_s = sc.orange(state_s)
-                elif waiting:                                                 # waiting on a lock
+            elif waiting:
+                # some waiting may be more okay than others (but TODO: check reasons)
+                if 'client' in waitingon:
+                    state_s = sc.yellow(state_s)
+                else: # generally it's bad
                     state_s = sc.red(state_s)
-                elif state in ('working','active'):
-                    if age > 5.0:                                             # slow query
-                        state_s = sc.red(state_s)
-                    elif age > 1.0:
-                        state_s = sc.orange(state_s)                          # slowish query
+            elif is_iit: # you probably want to add some rollbacks
+                state_s = sc.orange(state_s)
+            elif state in ('working','active'):
+                if age > 5.0:                                             # slow query
+                    state_s = sc.red(state_s)
+                elif age > 1.0:
+                    state_s = sc.orange(state_s)                          # slowish query
+                        
             msg.append( state_s )
             
             msg.append( sc.darkgray('%10s@%-10s'%(username,datname)) )
@@ -246,13 +283,18 @@ def main():
             
             # try to split query in a readable way (put on parameter?)
             if splitquery:
-                for i,line in enumerate(list(line.strip()   for line in query.splitlines()[:maxlines])):
+                #qlines = query.splitlines() # simple and stupid
+                # not wanting to build a proper parser:
+                qlines = re.split('\s(?=FROM |WHERE |FULL OUTER JOIN |OUTER JOIN |INNER JOIN |LEFT JOIN |RIGHT JOIN |CROSS JOIN JOIN |ORDER BY |GROUP BY |HAVING )', query.strip(), flags = re.I)
+                qparts=[]               
+                for i,line in enumerate(list(line.strip()   for line in qlines[:maxlines])):
                     if i==0:
-                        msg.append( colorqtype(line) )
+                        qparts.append( colorqtype(line) )
                     else:
-                        msg.append( sc.darkgray(line) )
-            else: # maybe also have option for 'as is'?
-                msg.append( colorqtype( re.sub('[\r\n\s]+', ' ', query) ) )
+                        qparts.append( sc.darkgray(line) )
+                msg.append( '\n'.join(qparts) )
+            else: # squeeze whitespace.   CONSIDER: option for 'as is'?
+                msg.append( colorqtype( re.sub(r'[\s]+', ' ', query) ) )
             
             # show in iit, active, or recent section?
             if is_iit:
@@ -268,9 +310,9 @@ def main():
         
                 
         # actually print
-        print sc.clearscreen()
+        #print sc.clearscreen()
         
-        print sc.brightblue("%d open connections,   %d idle,   %d idle in transaction   (limit: %d)"%(connamt, idles, len(toprint_iit), connlimit))
+        print sc.brightblue("%d open connections (limit: %d)   %d working,   %d waiting on lock,   %d idle,   %d idle in transaction"%(connamt, connlimit, actives, waitings, idles, len(toprint_iit)))
 
         print sc.brightblue("Ignored %d queries that ran shorter than %.1f seconds"%(shorts, short_running_thresh))
         #print sc.yellow("# Boring queries: %d"%borings)
@@ -294,7 +336,7 @@ def main():
             print "No active queries"
         
         
-        if len(toprint_recent)>0:
+        if maxrecent>0 and len(toprint_recent)>0:
             print 
             print 
             print 
