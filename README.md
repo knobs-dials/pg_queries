@@ -28,6 +28,6 @@ Not sure whether this can be cleverer, haven't studied it enough.
 
 
 # TODO
-- make compatible with multiple postgres servers (the table it queries has seen changes over time)
+- make compatible with multiple postgres servers (the table it queries has seen changes over time, current code is since 10ish?)
 
   
