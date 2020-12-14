@@ -141,7 +141,7 @@ def main():
         connlimit = int( curs.fetchone()[0] )
         
         # TODO: figure out which fits for which version. Seems to have changed a few times in 9 versions
-        #curs.execute('SELECT pid, datname, usename, xact_start, query_start, waiting, state, query  FROM pg_stat_activity ORDER BY pid')
+        #curs.execute('SELECT pid, datname, usename, xact_start, query_start, waiting, state, query  FROM pg_stat_activity  WHERE backend_type not in 'background worker' ORDER BY pid')
         # TODO: figure out all reasons that fields are mostly NULL
         curs.execute('SELECT pid, datname, usename, xact_start, query_start, state, query,  wait_event, wait_event_type  FROM pg_stat_activity ORDER BY pid')
         rows = curs.fetchall()
@@ -151,7 +151,7 @@ def main():
         print sc.clearscreen()
         
         connamt = 0
-        actives, waitings, idles, shorts, borings = 0, 0, 0, 0, 0
+        actives, waitings_lock, waitings_other, idles, shorts, borings = 0, 0, 0, 0, 0, 0
         for pid, datname, username, xact_start, query_start, state, query,  we,wet in rows:
             connamt += 1
             query=query.strip()
@@ -173,8 +173,13 @@ def main():
                 # and signals 'waiting for activity' i.e. idleness
                 # I think these don't count towards connections, so we ignore them
                 continue
+
+            #if wet=='IPC':
+            #    if we in ('BgWorkerShutdown', 'BgWorkerStartup',
+            #              'MessageQueueSend'):
+            #        continue
             
-            if state in ('active',):
+            if state in ('active','working'):
                 actives += 1
                 
             if 'xact_start' in query:  # self?   (check this)
@@ -227,21 +232,27 @@ def main():
             waitingon = 'FIXME'
             #print state,we,wet,query
             # WET is broader category, WE is details?
-            if we!=None: # ...and active? (wait_event is details to various things, e.g. ClientRead for idle.    Looks like various were added around pg10)
+            if we!=None and state in ('working','active'): # (wait_event is details to various things, e.g. ClientRead for idle -
+                # a bunch of these are waiting on events, not waiting while working
+                # also, it looks like various were added around pg10)
                 # there is overlap I'm trying to generalize, so order matters
                 if 'Lock' in wet: # including WAL lock
                     waitingon="wait:lock"
+                    waitings_lock += 1
                 elif 'wal' in we.lower():  # ...so this is mostly WAL IO?
                     waitingon="wait:WAL"
+                    waitings_lock += 1
                 elif 'IO' in wet: # and this is mostly other IO?
                     waitingon="wait:IO"
+                    waitings_lock += 1
                 elif 'Client' in wet:
                     waitingon="wait:client"
+                    waitings_lock += 1
                 else:
                     waitingon='wait:%s'%wet
-                #print 'WE:%r  WET:%r'%(we,wet)
-                waitings += 1  # decide whether to also consider this active
-                #state='waiting'
+                    waitings_other += 1
+                        
+                #print 'WE:%r  WET:%r   state:%s'%(we,wet, state)
                 waiting = True
                 state_s = ' %10s  '%waitingon
             
@@ -312,7 +323,8 @@ def main():
         # actually print
         #print sc.clearscreen()
         
-        print sc.brightblue("%d open connections (limit: %d)   %d working,   %d waiting on lock,   %d idle,   %d idle in transaction"%(connamt, connlimit, actives, waitings, idles, len(toprint_iit)))
+        print sc.brightblue("%d open connections (limit: %d)   %d working,   %d waiting on lock,   %d idle,   %d idle in transaction"%(
+                             connamt,            connlimit,     actives,      waitings_lock,       idles,     len(toprint_iit)))
 
         print sc.brightblue("Ignored %d queries that ran shorter than %.1f seconds"%(shorts, short_running_thresh))
         #print sc.yellow("# Boring queries: %d"%borings)
