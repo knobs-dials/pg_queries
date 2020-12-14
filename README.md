@@ -1,7 +1,9 @@
 # pg_queries
+Show current and recent queries.
+
 Aimed at finding clients that could use a little work - more efficient queries, less idle in transaction, that kind of thing.
 
-Some of these are things I'd like to see in pg_top, or are just a little easier than setting log_min_duration_statement and checking logs.
+Some of these are things I'd like to see in pg_top, and/or are just a little easier than setting log_min_duration_statement and checking logs.
 
 
 Shows 
@@ -10,9 +12,11 @@ Shows
 - current active queries 
   - amount of query time (estimated, with a resolution relating our polling interval)
   - colored by query type
-- recent queries (based on our on memory, not idle state in an unused worker)
+  - trying to usefully present wait_event, wait_event_type (working on it)
+- recent queries (based on us having seen them, not on idle state in an unused workers)
 
 Can filter out things that are done quickly 
+
 
 # connecting
 
