@@ -20,7 +20,7 @@ Can filter out things that are done quickly
 
 # connecting
 
-Connects to user and database 'postgres' on localhost (defaults on most systems), and should work transparently when aliased like `sudo -u postgres pg_queries` or not.
+Connects to user and database 'postgres' on localhost (defaults on most systems), and should work transparently when aliased like `sudo -u postgres pg_queries` if not.
 
 If you want anything else, read up on pg_hba.conf   (`local all all trust`   will often work -- but can be too permissive, so know its security implications!)
 
