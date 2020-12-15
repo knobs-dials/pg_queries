@@ -140,10 +140,9 @@ def main():
         curs.execute('SHOW max_connections')  # to print age based on server time and avoid timezone confusion
         connlimit = int( curs.fetchone()[0] )
         
-        # TODO: figure out which fits for which version. Seems to have changed a few times in 9 versions
-        #curs.execute('SELECT pid, datname, usename, xact_start, query_start, waiting, state, query  FROM pg_stat_activity  WHERE backend_type not in 'background worker' ORDER BY pid')
-        # TODO: figure out all reasons that fields are mostly NULL
-        curs.execute('SELECT pid, datname, usename, xact_start, query_start, state, query,  wait_event, wait_event_type  FROM pg_stat_activity ORDER BY pid')
+        # TODO: figure out which fits for which version. Seems to have changed a few times in 9, 10, and probably others
+        # TODO: figure out all reasons that fields can be mostly NULL
+        curs.execute("SELECT pid, datname, usename, xact_start, query_start, state, query,  wait_event, wait_event_type, backend_type  FROM pg_stat_activity ORDER BY pid")
         rows = curs.fetchall()
         curs.close()
         conn.close()
@@ -152,8 +151,7 @@ def main():
         
         connamt = 0
         actives, waitings_lock, waitings_other, idles, shorts, borings = 0, 0, 0, 0, 0, 0
-        for pid, datname, username, xact_start, query_start, state, query,  we,wet in rows:
-            connamt += 1
+        for pid, datname, username, xact_start, query_start, state, query,  we,wet, backend_type in rows:
             query=query.strip()
             # query time in seconds
             query_time = None
@@ -169,25 +167,29 @@ def main():
                 idles+=1
                 continue
 
+            # autovacuum launcher, autovacuum worker, logical replication launcher, logical replication worker, parallel worker, background writer, client backend, checkpointer, startup, walreceiver, walsender and walwriter
+            #if backend_type in ('checkpointer','background writer','walwriter','autovacuum launcher',):
+            #    continue
+
+            
+            connamt += 1 
+            #print `pid, datname, username, xact_start, query_start, state, query,  we,wet, backend_type`
             if wet=='Activity': # This is for pg processes (we will be something like 'CheckpointerMain','BgWriterHibernate','WalWriterMain','AutoVacuumMain','LogicalLauncherMain')
                 # and signals 'waiting for activity' i.e. idleness
                 # I think these don't count towards connections, so we ignore them
                 continue
 
-            #if wet=='IPC':
-            #    if we in ('BgWorkerShutdown', 'BgWorkerStartup',
-            #              'MessageQueueSend'):
-            #        continue
             
-            if state in ('active','working'):
-                actives += 1
-                
             if 'xact_start' in query:  # self?   (check this)
                 continue
             if 'xact_commit' in query: # pg_top? (check this)
                 continue
             if query_start == None:    # unsure
                 continue
+
+            
+            if state in ('active','working'):
+                actives += 1
             
             if ignore_boring and query in ('COMMIT','BEGIN','ROLLBACK'):
                 borings += 1

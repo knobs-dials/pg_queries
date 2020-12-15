@@ -459,7 +459,6 @@ def _format_segment(s):
 
 
 
-
 def _percent_parse(s, add=[]):
     """ Will rewrite any format strings with a width to have more width by the amount specified.
         The add array must have as many items as there are format strings.
@@ -538,15 +537,13 @@ def truncate_real_len(s,len, append=DEFAULT):
 
 def cformat(fs, seq, fsinstead=False):
     """ EXPERIMENT:
-        A percent formatter that is aware of the zero-display-width of these escapes.
-          (will add the additional bytes to the percent-formatter's width)       
-        This means you can feed it strings with color escapes,
-          and it'll try to avoid magic reindenting weirdness.
+        A percent formatter that is aware of the zero-display-width of these escapes,
+        so you can feed it strings with color escapes and avoid some magic reindenting weirdness.
         
         cformat(arg1,arg2) acts like arg1%arg2
 
         e.g. cformat('%20s', (WHITE+'fork'+RESET,) ) == '                \x1b[1;37mfork\x1b[0m\x1b[39m'
-        and not                                         '\x1b[1;37mfork\x1b[0m\x1b[39m'
+                                             instead of '\x1b[1;37mfork\x1b[0m\x1b[39m'
 
         Assumption is that escapes have zero width, which is true for colors but not for weirder things.
     """
