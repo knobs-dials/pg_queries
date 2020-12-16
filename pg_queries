@@ -147,7 +147,7 @@ def main():
         curs.close()
         conn.close()
         
-        print sc.clearscreen()
+        print sc.clearscreen() # TODO: move back down
         
         connamt = 0
         actives, waitings_lock, waitings_other, idles, shorts, borings = 0, 0, 0, 0, 0, 0
@@ -159,26 +159,28 @@ def main():
                 query_time = now - query_start#.replace(tzinfo=None)
                 query_time = query_time.total_seconds()
 
+            #print `pid, datname, username, xact_start, query_start, state, query,  we,wet, backend_type`
+                
             if 'pg_stat_activity' in query: # self (or other statusgetter),
                 continue # don't report
             
-            if state in ('idle',):
-                # idles are counted, but not shown   (avoids 'last, not current query' confusion)
-                idles+=1
+            #@ trying to ignore internal processes. Needs thinking.
+            # 'autovacuum launcher', 'autovacuum worker', 'logical replication launcher', 'logical replication worker', 'parallel worker', 'background writer', 'client backend', 'checkpointer', 'startup', 'walreceiver', 'walsender', 'walwriter'
+            if not 'worker' in backend_type: # TODO: look at what each means.   CONSIDER: counting rest as internals
                 continue
-
-            # autovacuum launcher, autovacuum worker, logical replication launcher, logical replication worker, parallel worker, background writer, client backend, checkpointer, startup, walreceiver, walsender and walwriter
-            #if backend_type in ('checkpointer','background writer','walwriter','autovacuum launcher',):
-            #    continue
-
-            
-            connamt += 1 
-            #print `pid, datname, username, xact_start, query_start, state, query,  we,wet, backend_type`
             if wet=='Activity': # This is for pg processes (we will be something like 'CheckpointerMain','BgWriterHibernate','WalWriterMain','AutoVacuumMain','LogicalLauncherMain')
                 # and signals 'waiting for activity' i.e. idleness
                 # I think these don't count towards connections, so we ignore them
                 continue
 
+            #print `pid, datname, username, xact_start, query_start, state, query,  we,wet, backend_type`
+            
+            connamt += 1 
+
+            if state in ('idle',):
+                # idles are counted, but not shown   (avoids 'last, not current query' confusion)
+                idles+=1
+                continue
             
             if 'xact_start' in query:  # self?   (check this)
                 continue
@@ -220,7 +222,7 @@ def main():
             if recent_seconds > inactive_age: # still printed but will be forgotten for the next round
                 if not 'idle in transaction' in state: # iit should make it here (logic is easier) but never remembered
                     new[ (starttime,pid) ] = (lastseen,query, state, username, datname, we,wet)
-            
+
             is_past = inactive_age > 0  # check whether that's quite how it reports
             is_iit  = 'idle in transaction' in state
 
@@ -234,22 +236,25 @@ def main():
             waitingon = 'FIXME'
             #print state,we,wet,query
             # WET is broader category, WE is details?
-            if we!=None and state in ('working','active'): # (wait_event is details to various things, e.g. ClientRead for idle -
+            if not is_past and we!=None and state in ('working','active'): # (wait_event is details to various things, e.g. ClientRead for idle -
                 # a bunch of these are waiting on events, not waiting while working
                 # also, it looks like various were added around pg10)
                 # there is overlap I'm trying to generalize, so order matters
+
+                #print `pid, datname, username, state, query,  we,wet`
+ 
                 if 'Lock' in wet: # including WAL lock
                     waitingon="wait:lock"
                     waitings_lock += 1
                 elif 'wal' in we.lower():  # ...so this is mostly WAL IO?
                     waitingon="wait:WAL"
-                    waitings_lock += 1
+                    waitings_other += 1
                 elif 'IO' in wet: # and this is mostly other IO?
                     waitingon="wait:IO"
-                    waitings_lock += 1
+                    waitings_other += 1
                 elif 'Client' in wet:
                     waitingon="wait:client"
-                    waitings_lock += 1
+                    waitings_other += 1
                 else:
                     waitingon='wait:%s'%wet
                     waitings_other += 1
@@ -262,27 +267,22 @@ def main():
             # color state
             if is_past:
                 state_s = ' '*13
-            elif waiting:
-                # some waiting may be more okay than others (but TODO: check reasons)
-                if 'client' in waitingon:
-                    state_s = sc.yellow(state_s)
-                else: # generally it's bad
-                    state_s = sc.red(state_s)
-            elif is_iit: # you probably want to add some rollbacks
-                state_s = sc.orange(state_s)
-            elif state in ('working','active'):
-                if age > 5.0:                                             # slow query
-                    state_s = sc.red(state_s)
-                elif age > 1.0:
-                    state_s = sc.orange(state_s)                          # slowish query
-                        
+            else:
+                if waiting:
+                    if 'client' in waitingon:  # some waiting may be more okay than others (but TODO: check reasons)
+                        state_s = sc.yellow(state_s)
+                    else: # otherwise it's bad
+                        state_s = sc.red(state_s)
+                elif is_iit: # you probably want to add some rollbacks
+                    state_s = sc.orange(state_s)
+                elif state in ('working','active'):
+                    if age > 5.0:                                             # slow query
+                        state_s = sc.red(state_s)
+                    elif age > 1.0:
+                        state_s = sc.orange(state_s)                          # slowish query
             msg.append( state_s )
-            
             msg.append( sc.darkgray('%10s@%-10s'%(username,datname)) )
-            
             msg.append( sc.darkgray('PID: %-10s'%pid) )
-            
-            
             msg.append( "Started %s ago"%( nicetimelength(age), ) )
             
             if inactive_age > 0:
@@ -296,8 +296,7 @@ def main():
             
             # try to split query in a readable way (put on parameter?)
             if splitquery:
-                #qlines = query.splitlines() # simple and stupid
-                # not wanting to build a proper parser:
+                # don't want to build a proper parser:
                 qlines = re.split('\s(?=FROM |WHERE |FULL OUTER JOIN |OUTER JOIN |INNER JOIN |LEFT JOIN |RIGHT JOIN |CROSS JOIN JOIN |ORDER BY |GROUP BY |HAVING )', query.strip(), flags = re.I)
                 qparts=[]               
                 for i,line in enumerate(list(line.strip()   for line in qlines[:maxlines])):
@@ -308,25 +307,53 @@ def main():
                 msg.append( '\n'.join(qparts) )
             else: # squeeze whitespace.   CONSIDER: option for 'as is'?
                 msg.append( colorqtype( re.sub(r'[\s]+', ' ', query) ) )
-            
+
+                
             # show in iit, active, or recent section?
             if is_iit:
                 toprint_iit.append( ' '.join(msg) )
             else:
-                if inactive_age > 0:
+                if is_past:
                     if age-inactive_age > short_running_thresh:
                         toprint_recent.append( ' '.join(msg) )
                     else:
                         shorts += 1
                 else:
                     toprint_active.append( ' '.join(msg) )
-        
+
+
+
+
+                    
                 
-        # actually print
+        ### actually print
         #print sc.clearscreen()
+        hdrline=[]
+        hdrline.append('%d open connections (limit: %d)'%(connamt,  connlimit))
+        hdrline.append('%d working,'%(actives))
+        hdrline.append(sc.reset())
+        msg = '%d waiting on lock,'%(waitings_lock)
+        if len(toprint_iit)>5:
+            hdrline.append( sc.red(msg) )        
+        elif len(toprint_iit)>5:
+            hdrline.append( sc.yellow(msg) )        
+        else:
+            hdrline.append( sc.green(msg) )        
         
-        print sc.brightblue("%d open connections (limit: %d)   %d working,   %d waiting on lock,   %d idle,   %d idle in transaction"%(
-                             connamt,            connlimit,     actives,      waitings_lock,       idles,     len(toprint_iit)))
+        msg = '%d idle,'%(idles)
+        if len(toprint_iit)>5:
+            hdrline.append( sc.yellow(msg) )        
+        else:
+            hdrline.append( sc.green(msg) )        
+
+        msg = '%d idle in transaction'%(len(toprint_iit))
+        if len(toprint_iit)>5:
+            hdrline.append( sc.red(msg) )        
+        elif len(toprint_iit)>5:
+            hdrline.append( sc.yellow(msg) )        
+        else:
+            hdrline.append( sc.green(msg) )        
+        print sc.brightblue('     '.join(hdrline))
 
         print sc.brightblue("Ignored %d queries that ran shorter than %.1f seconds"%(shorts, short_running_thresh))
         #print sc.yellow("# Boring queries: %d"%borings)
