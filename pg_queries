@@ -356,7 +356,7 @@ def main():
                 
         ### actually print
         #print sc.clearscreen()
-        hdrline=[str(cols)]
+        hdrline=[]
         hdrline.append('%d open connections (limit: %d)'%(connamt,  connlimit))
         hdrline.append('%d working,'%(actives))
         hdrline.append(sc.reset())
