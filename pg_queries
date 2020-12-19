@@ -2,14 +2,28 @@
 
 # CONSIDER: showing locks (from pg_locks)
 
-import time, datetime
-import os, sys
-import re
+import time, datetime, os, sys, re
 
 import psycopg2
 
 import helpers_shellcolor as sc
 
+
+# non-wrapping code adapts to console size changes
+cols = None
+
+def update_cols():
+    global cols
+    cols = sc.tty_size()['cols']
+
+update_cols()
+
+try:
+    import signal
+    signal.signal(signal.SIGWINCH,  lambda signum,sframe: update_cols() )
+except: 
+    raise
+    pass
 
 
 
@@ -30,11 +44,11 @@ def nicetimelength(sec, long=False, joinon=' ', parts=2, future=''):
     ]
     ret=[]
     left = sec
-
+    
     if left<0:
         ret.append(future)
         left = abs(left)
-
+    
     roundme=False
     if left>10:
         roundme=True
@@ -65,9 +79,10 @@ def nicetimelength(sec, long=False, joinon=' ', parts=2, future=''):
 
 
 def colorqtype(q):
-    ' ANSI-colors a string, based on the first word in the query '
+    ' ANSI-colors a string based on the first word in the query '
+    q = q.strip()
     if ' ' in q:
-        first,tail = q.strip().split(None,1) 
+        first,tail = q.split(None,1) 
         tail = sc.darkgray(tail)
     else: # hacky
         first=q
@@ -110,9 +125,14 @@ def main():
     p.add_option("-r", "--max-recent",
                  dest="maxrecent", default='10',
                  help="Show at most this-many recent queries, e.g. to help avoid scrolling off the active ones. Defaults to 10.") 
-    p.add_option("-S", "--split-query",
+
+    p.add_option("-T", "--truncate-query",
+                 dest="truncquery", default=False, action='store_true',
+                 help="Default is to (re)split queres over lines, for readability. This truncates it to at most one line")
+    p.add_option("-S", "--reformat-query",
                  dest="splitquery", default=True, action='store_false',
-                 help="Default is to (re)split queres over lines, for readability. This puts it all on one line.")  # CONSIDER: truncating
+                 help="Default is to (re)split queres over lines, for readability. This puts it all on one line but will likely wrap.")
+    
     p.add_option("-m", "--max-query-lines",
                  dest="querylines", default='10',
                  help="Show first this-many lines of the split query. Defaults to 10.") 
@@ -124,6 +144,7 @@ def main():
     ignore_boring        =       options.ignoreboring
     short_running_thresh = float(options.shortthresh)
     splitquery           =       options.splitquery
+    truncquery           =       options.truncquery
     maxrecent            =   int(options.maxrecent)
     maxlines             =   int(options.querylines)
     recent_seconds       = float(options.forgettime)
@@ -142,7 +163,7 @@ def main():
         
         # TODO: figure out which fits for which version. Seems to have changed a few times in 9, 10, and probably others
         # TODO: figure out all reasons that fields can be mostly NULL
-        curs.execute("SELECT pid, datname, usename, xact_start, query_start, state, query,  wait_event, wait_event_type, backend_type  FROM pg_stat_activity ORDER BY pid")
+        curs.execute("SELECT pid, datname, usename, xact_start, query_start, state, query,  wait_event, wait_event_type, backend_type  FROM pg_stat_activity")
         rows = curs.fetchall()
         curs.close()
         conn.close()
@@ -166,7 +187,7 @@ def main():
             
             #@ trying to ignore internal processes. Needs thinking.
             # 'autovacuum launcher', 'autovacuum worker', 'logical replication launcher', 'logical replication worker', 'parallel worker', 'background writer', 'client backend', 'checkpointer', 'startup', 'walreceiver', 'walsender', 'walwriter'
-            if not 'worker' in backend_type: # TODO: look at what each means.   CONSIDER: counting rest as internals
+            if not 'worker' in backend_type and not 'client' in backend_type: # TODO: look at what each means.   CONSIDER: counting rest as internals
                 continue
             if wet=='Activity': # This is for pg processes (we will be something like 'CheckpointerMain','BgWriterHibernate','WalWriterMain','AutoVacuumMain','LogicalLauncherMain')
                 # and signals 'waiting for activity' i.e. idleness
@@ -211,7 +232,7 @@ def main():
         toprint_active = []
         toprint_recent = []
         items = recent.items()
-        items.sort(lambda a, b: cmp(b[0][0],a[0][0]))
+        items.sort(lambda a, b: cmp(a[0][0],b[0][0]))
         for (starttime,pid),  (lastseen,query, state, username, datname, we, wet) in items:
             ### bookkeeping
             # dump old stuff  (still printed this round)
@@ -295,8 +316,15 @@ def main():
             
             
             # try to split query in a readable way (put on parameter?)
-            if splitquery:
-                # don't want to build a proper parser:
+            if truncquery:
+                s = re.sub('\s+',' ', query.strip())
+                havesize = cols-2
+                if len(s) > havesize-3:
+                    msg.append( s[:havesize-3]+'...')
+                else:
+                    msg.append( s ) 
+            elif splitquery:
+                # don't want to build a proper parser, but this is a start:
                 qlines = re.split('\s(?=FROM |WHERE |FULL OUTER JOIN |OUTER JOIN |INNER JOIN |LEFT JOIN |RIGHT JOIN |CROSS JOIN JOIN |ORDER BY |GROUP BY |HAVING )', query.strip(), flags = re.I)
                 qparts=[]               
                 for i,line in enumerate(list(line.strip()   for line in qlines[:maxlines])):
@@ -305,7 +333,7 @@ def main():
                     else:
                         qparts.append( sc.darkgray(line) )
                 msg.append( '\n'.join(qparts) )
-            else: # squeeze whitespace.   CONSIDER: option for 'as is'?
+            else: # squeeze whitespace into spaces.   CONSIDER: option for 'as is'?
                 msg.append( colorqtype( re.sub(r'[\s]+', ' ', query) ) )
 
                 
@@ -328,7 +356,7 @@ def main():
                 
         ### actually print
         #print sc.clearscreen()
-        hdrline=[]
+        hdrline=[str(cols)]
         hdrline.append('%d open connections (limit: %d)'%(connamt,  connlimit))
         hdrline.append('%d working,'%(actives))
         hdrline.append(sc.reset())
