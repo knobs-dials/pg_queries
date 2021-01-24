@@ -1,6 +1,7 @@
 #!/usr/bin/python
 
 # CONSIDER: showing locks (from pg_locks)
+# CONSIDER: have a different sampling and display interval (would mostly be for still having accurate recent list but being more readabile)
 
 import time, datetime, os, sys, re
 
@@ -123,34 +124,43 @@ def main():
                  dest="forgettime", default='30',
                  help="Forget recent queries after this many seconds. Defaults to 30")
     p.add_option("-r", "--max-recent",
-                 dest="maxrecent", default='10',
-                 help="Show at most this-many recent queries, e.g. to help avoid scrolling off the active ones. Defaults to 10.") 
+                 dest="maxrecent", default='5',
+                 help="Show at most this-many recent queries, e.g. to help avoid scrolling off the active ones. Defaults to 5.") 
 
-    p.add_option("-T", "--truncate-query",
+    # options are   asis, reformat, or truncate (default) 
+    p.add_option("-A", "--as-is-query",
+                 dest="asisquery", default=False, action='store_true',
+                 help="Default is to truncate to at most a line. This instead leaves the query formatted as reported to us")
+    p.add_option("-R", "--reformat-query",
+                 dest="splitquery", default=False, action='store_true',
+                 help="Default is to truncate to at most a line. This instead splits on the major parts (select, from, where)")
+    p.add_option("-T", "--no-truncate-query",
                  dest="truncquery", default=False, action='store_true',
-                 help="Default is to (re)split queres over lines, for readability. This truncates it to at most one line")
-    p.add_option("-S", "--reformat-query",
-                 dest="splitquery", default=True, action='store_false',
-                 help="Default is to (re)split queres over lines, for readability. This puts it all on one line but will likely wrap.")
+                 help="Put as much of the query that fits on a single line, truncate the rest, so that we have some hope of showing all on a screen. Currently the default.")
     
-    p.add_option("-m", "--max-query-lines",
-                 dest="querylines", default='10',
-                 help="Show first this-many lines of the split query. Defaults to 10.") 
+    #p.add_option("-m", "--max-query-lines",
+    #             dest="querylines", default='10',
+    #             help="Show first this-many lines of the as-is or reformatted query. Defaults to 10.")
+    
     p.add_option("-I", "--dont-ignore-boring",
                  dest="ignoreboring", default=True, action='store_false',
                  help="By default we ignore things like COMMIT, BEGIN, and ROLLBACK. This shows them.")
     options, args = p.parse_args()  # defaults to parsing sys.argv[1:].  May exit the program.
-
+    
     ignore_boring        =       options.ignoreboring
     short_running_thresh = float(options.shortthresh)
-    splitquery           =       options.splitquery
-    truncquery           =       options.truncquery
     maxrecent            =   int(options.maxrecent)
-    maxlines             =   int(options.querylines)
+    #maxlines             =   int(options.querylines)
     recent_seconds       = float(options.forgettime)
     interval_sec         = float(options.pollinterval)
-    print options.shortthresh, short_running_thresh
+    #print options.shortthresh, short_running_thresh
+    splitquery     =       options.splitquery
+    truncquery     =       options.truncquery
+    asisquery      =       options.asisquery
 
+    if not asisquery and not truncquery and not splitquery:
+        truncquery = True    
+    
     while True:
         conn = psycopg2.connect('dbname=postgres user=postgres host=localhost connect_timeout=5')
         curs = conn.cursor()
@@ -320,20 +330,22 @@ def main():
                 s = re.sub('\s+',' ', query.strip())
                 havesize = cols-2
                 if len(s) > havesize-3:
-                    msg.append( s[:havesize-3]+'...')
+                    msg.append( colorqtype( s[:havesize-3]+'...') )
                 else:
-                    msg.append( s ) 
+                    msg.append( colorqtype( s ) ) 
             elif splitquery:
                 # don't want to build a proper parser, but this is a start:
                 qlines = re.split('\s(?=FROM |WHERE |FULL OUTER JOIN |OUTER JOIN |INNER JOIN |LEFT JOIN |RIGHT JOIN |CROSS JOIN JOIN |ORDER BY |GROUP BY |HAVING )', query.strip(), flags = re.I)
                 qparts=[]               
-                for i,line in enumerate(list(line.strip()   for line in qlines[:maxlines])):
+                for i,line in enumerate(list(line.strip()   for line in qlines)): #[:maxlines]
                     if i==0:
                         qparts.append( colorqtype(line) )
                     else:
                         qparts.append( sc.darkgray(line) )
                 msg.append( '\n'.join(qparts) )
-            else: # squeeze whitespace into spaces.   CONSIDER: option for 'as is'?
+            elif asisquery:
+                msg.append( colorqtype( query ) )
+            else: # squeeze whitespace into spaces. Currently not used
                 msg.append( colorqtype( re.sub(r'[\s]+', ' ', query) ) )
 
                 
