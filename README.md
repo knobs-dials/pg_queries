@@ -1,6 +1,10 @@
 # pg_queries
 Show current and recent queries.
 
+
+![screenshot](https://raw.githubusercontent.com/scarfboy/pg_queries/master/screenshot.png "screenshot")
+
+
 Aimed at finding clients that could use a little work - more efficient queries, less idle in transaction, that kind of thing.
 
 Some of these are things I'd like to see in pg_top, and/or are just a little easier than setting log_min_duration_statement and checking logs.
@@ -28,6 +32,7 @@ Not sure whether this can be cleverer, haven't studied it enough.
 
 
 # TODO
+- check a lot of counting logic, for correctness and whether it does what I want
 - make compatible with multiple postgres servers (the table it queries has seen changes over time, current code is since 10ish?)
 
   
