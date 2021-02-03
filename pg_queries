@@ -1,4 +1,4 @@
-#!/usr/bin/python
+#!/usr/bin/python3
 
 # CONSIDER: showing locks (from pg_locks)
 # CONSIDER: have a different sampling and display interval (would mostly be for still having accurate recent list but being more readabile)
@@ -115,16 +115,16 @@ def main():
     from optparse import OptionParser    
     p = OptionParser() 
     p.add_option("-i", "--poll-interval",
-                 dest="pollinterval", default='0.05',
+                 dest="pollinterval", default='0.4',
                  help="Poll interval, in seconds. Defaults to 0.05.")
     p.add_option("-t", "--worktime-threshold",
-                 dest="shortthresh", default='0.1',
+                 dest="shortthresh", default='0.05',
                  help="Show only active/recent queries that took at least this many seconds. Higher will show only slower queries. Lower, like 0, shows most (but not all, because we're polling). Defaults to 0.1.")
     p.add_option("-f", "--forget-time",
                  dest="forgettime", default='30',
                  help="Forget recent queries after this many seconds. Defaults to 30")
     p.add_option("-r", "--max-recent",
-                 dest="maxrecent", default='5',
+                 dest="maxrecent", default='3',
                  help="Show at most this-many recent queries, e.g. to help avoid scrolling off the active ones. Defaults to 5.") 
 
     # options are   asis, reformat, or truncate (default) 
@@ -153,7 +153,6 @@ def main():
     #maxlines             =   int(options.querylines)
     recent_seconds       = float(options.forgettime)
     interval_sec         = float(options.pollinterval)
-    #print options.shortthresh, short_running_thresh
     splitquery     =       options.splitquery
     truncquery     =       options.truncquery
     asisquery      =       options.asisquery
@@ -178,7 +177,7 @@ def main():
         curs.close()
         conn.close()
         
-        print sc.clearscreen() # TODO: move back down
+        print( sc.clearscreen() ) # TODO: move back down
         
         connamt = 0
         actives, waitings_lock, waitings_other, idles, shorts, borings = 0, 0, 0, 0, 0, 0
@@ -190,7 +189,7 @@ def main():
                 query_time = now - query_start#.replace(tzinfo=None)
                 query_time = query_time.total_seconds()
 
-            #print `pid, datname, username, xact_start, query_start, state, query,  we,wet, backend_type`
+            #print( repr( (pid, datname, username, xact_start, query_start, state, query,  we,wet, backend_type) ) )
                 
             if 'pg_stat_activity' in query: # self (or other statusgetter),
                 continue # don't report
@@ -204,8 +203,8 @@ def main():
                 # I think these don't count towards connections, so we ignore them
                 continue
 
-            #print `pid, datname, username, xact_start, query_start, state, query,  we,wet, backend_type`
-            
+            #print( repr( (pid, datname, username, xact_start, query_start, state, query,  we,wet, backend_type) ) )
+
             connamt += 1 
 
             if state in ('idle',):
@@ -241,8 +240,8 @@ def main():
         toprint_iit    = []
         toprint_active = []
         toprint_recent = []
-        items = recent.items()
-        items.sort(lambda a, b: cmp(a[0][0],b[0][0]))
+        items = list(recent.items())
+        items.sort(key=lambda a: a[0][0])
         for (starttime,pid),  (lastseen,query, state, username, datname, we, wet) in items:
             ### bookkeeping
             # dump old stuff  (still printed this round)
@@ -272,7 +271,8 @@ def main():
                 # also, it looks like various were added around pg10)
                 # there is overlap I'm trying to generalize, so order matters
 
-                #print `pid, datname, username, state, query,  we,wet`
+                # XXX
+                #print( repr(pid, datname, username, state, query,  we,wet) )
  
                 if 'Lock' in wet: # including WAL lock
                     waitingon="wait:lock"
@@ -290,7 +290,7 @@ def main():
                     waitingon='wait:%s'%wet
                     waitings_other += 1
                         
-                #print 'WE:%r  WET:%r   state:%s'%(we,wet, state)
+                #print( 'WE:%r  WET:%r   state:%s'%(we,wet, state) )
                 waiting = True
                 state_s = ' %10s  '%waitingon
             
@@ -367,7 +367,7 @@ def main():
                     
                 
         ### actually print
-        #print sc.clearscreen()
+        #print( sc.clearscreen() )
         hdrline=[]
         hdrline.append('%d open connections (limit: %d)'%(connamt,  connlimit))
         hdrline.append('%d working,'%(actives))
@@ -393,38 +393,38 @@ def main():
             hdrline.append( sc.yellow(msg) )        
         else:
             hdrline.append( sc.green(msg) )        
-        print sc.brightblue('     '.join(hdrline))
+        print( sc.brightblue('     '.join(hdrline)) )
 
-        print sc.brightblue("Ignored %d queries that ran shorter than %.1f seconds"%(shorts, short_running_thresh))
+        print( sc.brightblue("Ignored %d queries that ran shorter than %.1f seconds"%(shorts, short_running_thresh)) )
         #print sc.yellow("# Boring queries: %d"%borings)
-        print
-        print
+        print('')
+        print('')
         
         if len(toprint_iit)>0:
-            print sc.red("# The more recent query in each of the %d idle in transaction connections:"%len(toprint_iit))
+            print( sc.red("# The more recent query in each of the %d idle in transaction connections:"%len(toprint_iit)) )
             for thing in toprint_iit:
-                print thing
-                print sc.magenta('- '*40) # separator
-            print
-            print
+                print( thing )
+                print( sc.magenta('- '*40) ) # separator
+            print('')
+            print('')
         
-        print sc.green("# Active queries")
+        print( sc.green("# Active queries") )
         if len(toprint_active)>0:
             for thing in toprint_active:
-                print thing
-                print sc.magenta('- '*40) # separator
+                print( thing )
+                print( sc.magenta('- '*40) ) # separator 
         else:
-            print "No active queries"
+            print( "No active queries" )
         
         
         if maxrecent>0 and len(toprint_recent)>0:
-            print 
-            print 
-            print 
-            print sc.cyan("# Recent queries  (up to %s  from the last %d seconds)"%(maxrecent, recent_seconds, ))
+            print('')
+            print('')
+            print('') 
+            print( sc.cyan("# Recent queries  (up to %s  from the last %d seconds)"%(maxrecent, recent_seconds, )) )
             for thing in toprint_recent[:maxrecent]:
-                print thing
-                print sc.magenta('- '*40) # separator
+                print( thing )
+                print( sc.magenta('- '*40) ) # separator
         
         
         recent = new
