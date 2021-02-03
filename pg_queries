@@ -116,16 +116,16 @@ def main():
     p = OptionParser() 
     p.add_option("-i", "--poll-interval",
                  dest="pollinterval", default='0.4',
-                 help="Poll interval, in seconds. Defaults to 0.05.")
+                 help="Poll interval, in seconds. Defaults to 0.4 so you have some chance to read.")
     p.add_option("-t", "--worktime-threshold",
                  dest="shortthresh", default='0.05',
-                 help="Show only active/recent queries that took at least this many seconds. Higher will show only slower queries. Lower, like 0, shows most (but not all, because we're polling). Defaults to 0.1.")
+                 help="Show only active/recent queries that took at least this many seconds. Higher will show only slower queries. Lower, like 0, shows most (but not all, because we're polling). Defaults to 0.05.")
     p.add_option("-f", "--forget-time",
                  dest="forgettime", default='30',
                  help="Forget recent queries after this many seconds. Defaults to 30")
     p.add_option("-r", "--max-recent",
                  dest="maxrecent", default='3',
-                 help="Show at most this-many recent queries, e.g. to help avoid scrolling off the active ones. Defaults to 5.") 
+                 help="Show at most this-many recent queries, e.g. to help avoid scrolling off the active ones. Defaults to 3.") 
 
     # options are   asis, reformat, or truncate (default) 
     p.add_option("-A", "--as-is-query",
