@@ -1,5 +1,5 @@
 # pg_queries
-Show current and recent queries.
+Show current and recent queries on the command line.
 
 
 ![screenshot](https://raw.githubusercontent.com/scarfboy/pg_queries/master/screenshot.png "screenshot")
