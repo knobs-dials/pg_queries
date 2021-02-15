@@ -1,20 +1,17 @@
 # pg_queries
-Show current and recent postgresql queries, on the command line, based on pg_stat_activity table.
-
-
 ![screenshot](https://raw.githubusercontent.com/scarfboy/pg_queries/master/screenshot.png "screenshot")
 
-Yes, much like pg_top, but aimed more specifically at finding clients that could use a little work, highlighting slow queries, idle in transaction connections, that kind of thing.
-
+Show current and recent postgresql queries, on the command line, based on pg_stat_activity table.
+Yes, much like pg_top, but aimed more specifically at finding clients that could use a little work.
 
 Shows 
-- amount of active, idle, idle in transaction, and max connections
 - most recent query for idle in transaction connections
 - current active queries 
-  - amount of query time (estimated, with a resolution relating our polling interval)
+  - amount of query time (estimated, with a resolution related to our polling interval)
   - colored by query type
-  - trying to usefully present wait_event, wait_event_type (working on it)
-- recent queries (based on us having seen them, not on idle state in an unused workers)
+  - trying to show what each is waiting on, like locks or WAL (still working on how to present wait_event, wait_event_type)
+- recent queries (based on us having seen them, not on idle state in an unused workers) so they don't disappear in a flash
+- amount of active, idle, idle in transaction, and max connections
 
 Can filter out things that are done quickly 
 
