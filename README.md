@@ -40,7 +40,8 @@ Options:
   -A, --as-is-query     Default is to truncate to at most a line. This instead
                         leaves the query formatted as reported to us
   -R, --reformat-query  Default is to truncate to at most a line. This instead
-                        splits on the major parts (select, from, where)
+                        inserts newlines on the major parts (SELECT, FROM, 
+                        WHERE, and such)
   -T, --no-truncate-query
                         Put as much of the query that fits on a single line,
                         truncate the rest, so that we have some hope of
