@@ -1,13 +1,10 @@
 # pg_queries
-Show current and recent queries on the command line.
+Show current and recent postgresql queries, on the command line, based on pg_stat_activity table.
 
 
 ![screenshot](https://raw.githubusercontent.com/scarfboy/pg_queries/master/screenshot.png "screenshot")
 
-
-Aimed at finding clients that could use a little work - more efficient queries, less idle in transaction, that kind of thing.
-
-Some of these are things I'd like to see in pg_top, and/or are just a little easier than setting log_min_duration_statement and checking logs.
+Yes, much like pg_top, but aimed more specifically at finding clients that could use a little work, highlighting slow queries, idle in transaction connections, that kind of thing.
 
 
 Shows 
@@ -21,6 +18,40 @@ Shows
 
 Can filter out things that are done quickly 
 
+
+# arguments
+
+```
+Usage: pg_queries [options]
+
+Options:
+  -h, --help            show this help message and exit
+  -i POLLINTERVAL, --poll-interval=POLLINTERVAL
+                        Poll interval, in seconds. Defaults to 0.4 so you have
+                        some chance to read.
+  -t SHORTTHRESH, --worktime-threshold=SHORTTHRESH
+                        Show only active/recent queries that took at least
+                        this many seconds. Higher will show only slower
+                        queries. Lower, like 0, shows most (but not all,
+                        because we're polling). Defaults to 0.05.
+  -f FORGETTIME, --forget-time=FORGETTIME
+                        Forget recent queries after this many seconds.
+                        Defaults to 30
+  -r MAXRECENT, --max-recent=MAXRECENT
+                        Show at most this-many recent queries, e.g. to help
+                        avoid scrolling off the active ones. Defaults to 3.
+  -A, --as-is-query     Default is to truncate to at most a line. This instead
+                        leaves the query formatted as reported to us
+  -R, --reformat-query  Default is to truncate to at most a line. This instead
+                        splits on the major parts (select, from, where)
+  -T, --no-truncate-query
+                        Put as much of the query that fits on a single line,
+                        truncate the rest, so that we have some hope of
+                        showing all on a screen. Currently the default.
+  -I, --dont-ignore-boring
+                        By default we ignore things like COMMIT, BEGIN, and
+                        ROLLBACK. This shows them.
+```
 
 # connecting
 
