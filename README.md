@@ -8,7 +8,7 @@ Yes, much like pg_top, but aimed more at finding clients that could use a little
 - current active queries 
   - amount of query time (estimated, with a resolution related to our polling interval)
   - colored by query type
-  - trying to show what each is waiting on, like locks or WAL (I'm still working on how to present wait_event, wait_event_type)
+  - (experiment:) what each is waiting on, like locks or WAL (I'm still working on how to present wait_event, wait_event_type)
 - recent queries (based on us having seen them, not on idle state in an unused workers) so they don't disappear in a flash
 - amount of active, idle, idle in transaction, and max connections
 
