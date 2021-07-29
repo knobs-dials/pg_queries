@@ -133,10 +133,10 @@ def main():
                  help="Default is to truncate to at most a line. This instead leaves the query formatted as reported to us")
     p.add_option("-R", "--reformat-query",
                  dest="splitquery", default=False, action='store_true',
-                 help="Default is to truncate to at most a line. This instead splits on the major parts (select, from, where)")
+                 help="Default is to truncate to at most a line. This instead inserts newlines on the major parts (SELECT, FROM, WHERE, and such)")
     p.add_option("-T", "--no-truncate-query",
                  dest="truncquery", default=False, action='store_true',
-                 help="Put as much of the query that fits on a single line, truncate the rest, so that we have some hope of showing all on a screen. Currently the default.")
+                 help="Default is to truncate to at most a line. This prints everything (with newlines removed), which will very likely wrap")
     
     #p.add_option("-m", "--max-query-lines",
     #             dest="querylines", default='10',
@@ -145,7 +145,8 @@ def main():
     p.add_option("-I", "--dont-ignore-boring",
                  dest="ignoreboring", default=True, action='store_false',
                  help="By default we ignore things like COMMIT, BEGIN, and ROLLBACK. This shows them.")
-    options, args = p.parse_args()  # defaults to parsing sys.argv[1:].  May exit the program.
+    options, args = p.parse_args()
+    
     
     ignore_boring        =       options.ignoreboring
     short_running_thresh = float(options.shortthresh)
@@ -161,7 +162,7 @@ def main():
         truncquery = True    
     
     while True:
-        conn = psycopg2.connect('dbname=postgres user=postgres host=localhost connect_timeout=5')
+        conn = psycopg2.connect('dbname=postgres user=postgres host=localhost connect_timeout=20')
         curs = conn.cursor()
             
         curs.execute('SELECT NOW()')  # to print age based on server time and avoid timezone confusion
