@@ -1,9 +1,10 @@
 # pg_queries
 ![screenshot](https://raw.githubusercontent.com/scarfboy/pg_queries/master/screenshot.png "screenshot")
 
-Show current and recent postgresql queries, in a linux shell, based on pg_stat_activity table.
+Show current and recent postgresql queries, in a linux shell, based on `pg_stat_activity` table.
 
-Yes, much like pg_top, but aimed more at finding clients that could use a little work, in that it shows:
+
+Yes, much like `pg_top`, but aimed more at finding clients that could use a little work, in that it shows:
 - most recent query for idle-in-transaction connections
 - current active queries 
   - amount of query time (estimated, with a resolution related to our polling interval)
