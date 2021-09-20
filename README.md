@@ -53,7 +53,10 @@ Options:
 
 # connecting
 
-Connects to user and database 'postgres' on localhost (defaults on most systems), and should work transparently when aliased like `sudo -u postgres pg_queries` if not.
+Connects to user and database 'postgres' on localhost (defaults on most systems).
+
+If you need username stuff, then consider making a shell alias like to something like `sudo -u postgres pg_queries`.
+
 
 If you want anything else, read up on pg_hba.conf   (`local all all trust`   will often work -- but can be too permissive, so know its security implications!)
 
@@ -61,6 +64,7 @@ Not sure whether this can be cleverer, haven't studied it enough.
 
 
 # TODO
+- allow remote connects
 - check a lot of counting logic, for correctness and whether it does what I want
 - make compatible with multiple postgres servers (the table it queries has seen changes over time, current code is since 10ish?)
 
