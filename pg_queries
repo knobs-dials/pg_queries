@@ -10,27 +10,23 @@ import psycopg2
 import helpers_shellcolor as sc
 
 
-# non-wrapping code adapts to console size changes
+# non-line-wrapping code should adapt to console size changes if possible
 cols = None
-
 def update_cols():
     global cols
     cols = sc.tty_size()['cols']
-
 update_cols()
 
 try:
     import signal
     signal.signal(signal.SIGWINCH,  lambda signum,sframe: update_cols() )
 except: 
-    raise
     pass
 
 
 
 def nicetimelength(sec, long=False, joinon=' ', parts=2, future=''):
-    """ Takes a relative amount of time (seconds as float/int, or a timedelta),
-        returns a string like  '12min 47sec'.
+    """ Takes a relative amount of time (seconds as float, int, or timedelta),  returns a string like  '12min 47sec'.
     """
     if type(sec) is datetime.timedelta:       
        sec = sec.days*86400 + sec.seconds
@@ -80,7 +76,7 @@ def nicetimelength(sec, long=False, joinon=' ', parts=2, future=''):
 
 
 def colorqtype(q):
-    ' ANSI-colors a string based on the first word in the query '
+    ' Returns ANSI-colored version of a string based on the first word in the query '
     q = q.strip()
     if ' ' in q:
         first,tail = q.split(None,1) 
@@ -137,11 +133,9 @@ def main():
     p.add_option("-T", "--no-truncate-query",
                  dest="truncquery", default=False, action='store_true',
                  help="Default is to truncate to at most a line. This prints everything (with newlines removed), which will very likely wrap")
-    
     #p.add_option("-m", "--max-query-lines",
     #             dest="querylines", default='10',
     #             help="Show first this-many lines of the as-is or reformatted query. Defaults to 10.")
-    
     p.add_option("-I", "--dont-ignore-boring",
                  dest="ignoreboring", default=True, action='store_false',
                  help="By default we ignore things like COMMIT, BEGIN, and ROLLBACK. This shows them.")
@@ -151,15 +145,15 @@ def main():
     ignore_boring        =       options.ignoreboring
     short_running_thresh = float(options.shortthresh)
     maxrecent            =   int(options.maxrecent)
-    #maxlines             =   int(options.querylines)
+    #maxlines            =   int(options.querylines)
     recent_seconds       = float(options.forgettime)
     interval_sec         = float(options.pollinterval)
-    splitquery     =       options.splitquery
-    truncquery     =       options.truncquery
-    asisquery      =       options.asisquery
+    splitquery           =       options.splitquery
+    truncquery           =       options.truncquery
+    asisquery            =       options.asisquery
 
     if not asisquery and not truncquery and not splitquery:
-        truncquery = True    
+        truncquery = True   # default behaviour is single line truncate, for brevity
     
     while True:
         conn = psycopg2.connect('dbname=postgres user=postgres host=localhost connect_timeout=20')
@@ -171,8 +165,9 @@ def main():
         curs.execute('SHOW max_connections')  # to print age based on server time and avoid timezone confusion
         connlimit = int( curs.fetchone()[0] )
         
-        # TODO: figure out which fits for which version. Seems to have changed a few times in 9, 10, and probably others
+        # TODO: figure out changes around postgres 9, 10, and probably others
         # TODO: figure out all reasons that fields can be mostly NULL
+        # TODO: clean up logic, this has changed so often it has to be a mess
         curs.execute("SELECT pid, datname, usename, xact_start, query_start, state, query,  wait_event, wait_event_type, backend_type  FROM pg_stat_activity")
         rows = curs.fetchall()
         curs.close()
