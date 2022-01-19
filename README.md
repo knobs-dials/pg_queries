@@ -63,6 +63,7 @@ Not sure whether this can be cleverer, haven't studied it enough.
 
 
 # TODO
+- figure out pg connections in a broader way
 - allow remote connects
 - check a lot of counting logic, for correctness and whether it does what I want
 - make compatible with multiple postgres servers (the table it queries has seen changes over time, current code is since 10ish?)
