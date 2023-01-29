@@ -3,7 +3,7 @@
 
 Show current and recent postgresql queries, in a linux shell, based on the `pg_stat_activity` table.
 
-Aimed at finding clients that could use a little work (more so than pg_top), in that it shows:
+Aimed (than pg_top) at finding clients that could use a little work, in that it shows:
 - current active queries 
   - amount of query time (estimated, with a resolution related to our polling interval)
   - colored by query type
