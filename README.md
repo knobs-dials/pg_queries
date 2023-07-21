@@ -57,7 +57,7 @@ Connects to user and database 'postgres' on localhost (defaults on most systems)
 If you need username stuff, then consider making a shell alias like to something like `sudo -u postgres pg_queries`.
 
 
-If you want anything else, read up on pg_hba.conf   (`local all all trust`   will often work -- but can be too permissive, so know its security implications!)
+If you want anything else, read up on `pg_hba.conf`   (`local all all trust`   will often work -- but can be too permissive, so know its security implications!)
 
 Not sure whether this can be cleverer, haven't studied it enough.
 
