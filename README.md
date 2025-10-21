@@ -9,8 +9,8 @@ Aimed (more than pg_top) at finding clients that could use a little work, in tha
   - colored by query type
   - (experiment:) what each is waiting on, like locks or WAL (I'm still working on how to present wait_event, wait_event_type)
 - most recent query for idle-in-transaction connections
-- recent queries (based on us having seen them, not on idle state in an unused workers) so they don't disappear in a flash
-- amount of active, idle, idle in transaction, and max connections
+- no longer running, but still recent queries (based on us having seen them, not on idle state in an unused workers) so they don't disappear in a flash (and try to show only those that took nontrivial time)
+- amount of active, idle, idle-in-transaction, and max connections
 
 Can filter out things that are done quickly 
 
